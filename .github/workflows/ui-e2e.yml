@@ -100,7 +100,10 @@ jobs:
 
   report:
     needs: test
-    if: always()
+    # Only run when shards actually executed. `always()` alone also fires when
+    # `test` is skipped (e.g. fork runs gated by the upstream repo check),
+    # which left zero artifacts and hard-failed merge-reports + the final gate.
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'failure')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -180,6 +183,7 @@ jobs:
           pattern: ui-e2e-blob-*
           path: packages/ui-e2e/all-blob-reports
           merge-multiple: true
+          if-no-files-found: ignore
 
       - name: Download test results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -187,9 +191,16 @@ jobs:
           pattern: ui-e2e-results-*
           path: packages/ui-e2e/all-results
           merge-multiple: false
+          if-no-files-found: ignore
 
       - name: Merge Playwright reports
-        run: npx playwright merge-reports --reporter html all-blob-reports
+        run: |
+          mkdir -p all-blob-reports
+          if [ -z "$(ls -A all-blob-reports 2>/dev/null)" ]; then
+            echo "No blob reports to merge (no shards produced output); skipping."
+            exit 0
+          fi
+          npx playwright merge-reports --reporter html all-blob-reports
         working-directory: packages/ui-e2e
 
       - name: Upload HTML report
