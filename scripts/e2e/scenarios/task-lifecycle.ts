@@ -11,6 +11,7 @@ function records(value: unknown, field: string): Record<string, unknown>[] {
 
 export const taskLifecycle: Scenario = {
   name: "task-lifecycle",
+  order: 30,
   async run(ctx) {
     const agentResponse = await ctx.api("POST", "/api/agents", {
       body: { name: `e2e-worker-${ctx.nonce}`, role: "worker", status: "online" },
@@ -21,7 +22,7 @@ export const taskLifecycle: Scenario = {
 
     const marker = `E2E marker ${ctx.nonce}`;
     const createResponse = await ctx.api("POST", "/api/tasks", {
-      body: { task: marker, agentId, source: "api" },
+      body: { task: marker, routingReason: "human_pinned", agentId, source: "api" },
     });
     expectStatus(createResponse, [201], "create assigned task");
     const taskId = asRecord(createResponse.json).id;

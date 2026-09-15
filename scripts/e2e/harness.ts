@@ -25,6 +25,17 @@ const PROVIDER_CREDENTIAL_KEYS = {
 } as const;
 type HarnessChild = Bun.Subprocess<"ignore", "pipe", "pipe">;
 
+export type ClaudeTransport = "cli" | "sdk";
+
+export function claudeTransportFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): ClaudeTransport {
+  const raw = env.E2E_CLAUDE_TRANSPORT?.trim();
+  if (!raw || raw === "cli") return "cli";
+  if (raw === "sdk") return "sdk";
+  throw new Error("E2E_CLAUDE_TRANSPORT must be cli or sdk");
+}
+
 const activeChildren = new Set<HarnessChild>();
 
 function errorMessage(error: unknown): string {
@@ -95,6 +106,9 @@ function workerEnv(
     const value = process.env[key];
     if (value) env[key] = value;
   }
+  if (provider === "claude" && process.env.E2E_CLAUDE_BINARY) {
+    env.CLAUDE_BINARY = process.env.E2E_CLAUDE_BINARY;
+  }
   return env;
 }
 
@@ -163,20 +177,35 @@ function codexOAuthAuthJson(): string {
 }
 
 /** Seeds the temp HOME for one attempt and returns the session workspace directory. */
+/**
+ * Renders a seeded skill's SKILL.md frontmatter + body. Deliberately duplicated
+ * from src/be/seed-skills/render.ts (rather than imported) — scripts/e2e is a
+ * black-box HTTP/MCP/Bun-only runner (scripts/check-e2e-boundary.sh forbids
+ * importing from src/). Keep in sync if the seeded-skill frontmatter shape changes.
+ */
+function renderSkill(config: { name: string; description: string }, body: string): string {
+  return `---\nname: ${config.name}\ndescription: ${JSON.stringify(config.description)}\n---\n\n${body.trim()}\n`;
+}
+
 async function prepareHarnessHome(homeDir: string, provider: string): Promise<string> {
-  const claudeDir = `${homeDir}/.claude/commands`;
+  const claudeDir = `${homeDir}/.claude/skills/work-on-task`;
   const piDir = `${homeDir}/.pi/agent/skills/work-on-task`;
   const codexDir = `${homeDir}/.codex/skills/work-on-task`;
   const opencodeDir = `${homeDir}/.opencode/skills/work-on-task`;
   const workspaceDir = `${homeDir}/workspace`;
   await Bun.$`mkdir -p ${homeDir}/logs ${workspaceDir} ${claudeDir} ${piDir} ${codexDir} ${opencodeDir}`.quiet();
-  const command = await Bun.file(`${repoRoot}/plugin/commands/work-on-task.md`).text();
-  const piSkill = await Bun.file(`${repoRoot}/plugin/pi-skills/work-on-task/SKILL.md`).text();
+  const skillTemplateDir = `${repoRoot}/templates/skills/work-on-task`;
+  const config = (await Bun.file(`${skillTemplateDir}/config.json`).json()) as {
+    name: string;
+    description: string;
+  };
+  const body = await Bun.file(`${skillTemplateDir}/content.md`).text();
+  const skill = renderSkill(config, body);
   await Promise.all([
-    Bun.write(`${claudeDir}/work-on-task.md`, command),
-    Bun.write(`${piDir}/SKILL.md`, piSkill),
-    Bun.write(`${codexDir}/SKILL.md`, command),
-    Bun.write(`${opencodeDir}/SKILL.md`, command),
+    Bun.write(`${claudeDir}/SKILL.md`, skill),
+    Bun.write(`${piDir}/SKILL.md`, skill),
+    Bun.write(`${codexDir}/SKILL.md`, skill),
+    Bun.write(`${opencodeDir}/SKILL.md`, skill),
   ]);
   if (provider === "codex" && process.env.CODEX_OAUTH) {
     const authPath = `${homeDir}/.codex/auth.json`;
@@ -210,7 +239,9 @@ async function prepareHarnessHome(homeDir: string, provider: string): Promise<st
  * codex auth.json are found.
  */
 function workerCommand(homeDir: string): string[] {
-  const command = ["bun", "run", "src/cli.tsx", "worker", "--yolo"];
+  const command = process.env.E2E_WORKER_BINARY
+    ? [process.env.E2E_WORKER_BINARY, "worker", "--yolo"]
+    : ["bun", "run", "src/cli.tsx", "worker", "--yolo"];
   return process.getuid?.() === 0 && Bun.which("gosu")
     ? ["gosu", "worker", "env", `HOME=${homeDir}`, ...command]
     : command;
@@ -285,6 +316,7 @@ async function runHarnessAttempt(
   apiKey: string,
   nonce: string,
   model: string,
+  claudeTransport: ClaudeTransport,
 ): Promise<HarnessAttempt> {
   const started = Date.now();
   const stamp = `${Date.now()}-${provider}`;
@@ -313,13 +345,24 @@ async function runHarnessAttempt(
     expectStatus(register, [201], `register ${provider} harness agent`);
     const agentId = asRecord(register.json).id;
     expect(typeof agentId === "string", `${provider} registration response has no id`);
+    if (provider === "claude") {
+      const config = await api("PUT", "/api/config", {
+        body: {
+          scope: "agent",
+          scopeId: agentId,
+          key: "CLAUDE_TRANSPORT",
+          value: claudeTransport,
+        },
+      });
+      expectStatus(config, [200], `set Claude transport ${claudeTransport}`);
+    }
     const marker = `PONG-${nonce}`;
     // The session runs in a directory the worker user owns. In CI the checkout
     // belongs to root, and codex writes AGENTS.md into the session cwd.
     const create = await api("POST", "/api/tasks", {
       body: {
         task: `Reply with exactly the text ${marker} and nothing else. Do not use any tools.`,
-        agentId,
+        routingReason: "human_pinned", agentId,
         source: "api",
         dir: workspaceDir,
       },
@@ -378,6 +421,16 @@ async function runHarnessAttempt(
       typeof task.claudeSessionId === "string" && task.claudeSessionId.length > 0,
       `${provider} task has no session id`,
     );
+    if (provider === "claude") {
+      const providerMeta = asRecord(task.providerMeta);
+      expect(
+        providerMeta.transport === claudeTransport,
+        `Claude task providerMeta.transport was ${String(providerMeta.transport)}, expected ${claudeTransport}`,
+      );
+      expect(cost.records > 0, "Claude task has no persisted cost record");
+      expect(cost.inputTokens > 0, "Claude persisted cost has no input tokens");
+      expect(cost.outputTokens > 0, "Claude persisted cost has no output tokens");
+    }
     return { status: "pass", durationMs: Date.now() - started, cost };
   } catch (error) {
     writer?.flush();
@@ -413,6 +466,7 @@ export async function runHarnessLeg(
 ): Promise<HarnessResult> {
   const started = Date.now();
   const model = modelFor(provider);
+  const claudeTransport = provider === "claude" ? claudeTransportFromEnv() : "cli";
   const attempts: HarnessAttempt[] = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = await runHarnessAttempt(
@@ -422,6 +476,7 @@ export async function runHarnessLeg(
       apiKey,
       `${nonce}-a${attempt}`,
       model,
+      claudeTransport,
     );
     attempts.push(result);
     if (result.status === "pass") break;
@@ -434,6 +489,7 @@ export async function runHarnessLeg(
   const last = attempts[attempts.length - 1]!;
   return {
     provider,
+    transport: provider === "claude" ? claudeTransport : undefined,
     model,
     status: last.status,
     durationMs: Date.now() - started,

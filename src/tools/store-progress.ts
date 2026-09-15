@@ -7,25 +7,20 @@ import {
   getAgentById,
   getDbClient,
   getResolvedConfig,
-  getSessionLogsByTaskId,
   getTaskById,
   insertTaskAttachment,
   updateAgentStatusFromCapacity,
   updateTaskProgress,
 } from "@/be/db";
-import { getEmbeddingProvider, getMemoryStore } from "@/be/memory";
-import { getRetrievalsForTask } from "@/be/memory/raters/retrieval";
-import { runServerRaters } from "@/be/memory/raters/run-server-raters";
 import { AgentFsProvider } from "@/fs/agent-fs-provider";
-import { shouldPersistTaskCompletionMemory } from "@/memory/automatic-task-gate";
+import { runTaskTerminalEffects } from "@/tasks/task-terminal-effects";
 import {
   getTaskOutputValidationError,
   guardTerminalTaskResultWrite,
 } from "@/tasks/terminal-result-guard";
-import { createWorkerTaskFollowUp } from "@/tasks/worker-follow-up";
 import { createToolRegistrar, swarmToolOutputSchema, toolErr, toolOk } from "@/tools/utils";
 import { AgentTaskStatusSchema, AttachmentInputSchema, isTerminalTaskStatus } from "@/types";
-import { scrubSecrets } from "../utils/secret-scrubber";
+import { scrubSecrets } from "@/utils/secret-scrubber";
 
 // Phase 11: the `cost` / `costData` field was removed from this tool's input
 // schema. Adapters (claude/codex/pi/opencode/devin/claude-managed) are the
@@ -33,6 +28,17 @@ import { scrubSecrets } from "../utils/secret-scrubber";
 // calling `store-progress` rarely knew the real numbers and historically
 // echoed the schema example, producing noise rows keyed `mcp-<taskId>-<ts>`
 // that double-counted alongside the harness's authoritative entry.
+
+// Deliberately narrow and phrase-based (not a bare "wait"/"block" substring
+// match) to under-fire rather than over-fire: measured against 196 real
+// progress rows across all statuses, this matched 0 — see PR body for the
+// full false-positive measurement methodology.
+const BLOCKED_WAITING_PATTERN =
+  /\b(waiting (for|on)|blocked (on|until|by)|still waiting|awaiting)\b/i;
+
+// Below this, two check-ins are close enough together that "blocked" reads as
+// noise and calling defer-task buys nothing over checking in again shortly.
+const BLOCKED_WAITING_MIN_ELAPSED_MS = 3 * 60 * 1000;
 
 export const storeProgressOutputSchema = swarmToolOutputSchema({
   // Bounded confirmation only. The handler keeps the full task row internally
@@ -61,6 +67,12 @@ export const storeProgressOutputSchema = swarmToolOutputSchema({
     .describe(
       "True when force: true replaced output and/or failureReason on an already-terminal task without replaying completion side effects.",
     ),
+  blockedWaitingElapsedMs: z
+    .number()
+    .optional()
+    .describe(
+      "Present only when this progress text reads as blocked-waiting: milliseconds since the task's prior update. Drives the store-progress nudge toward defer-task.",
+    ),
 });
 
 export const registerStoreProgressTool = (server: McpServer) => {
@@ -73,12 +85,19 @@ export const registerStoreProgressTool = (server: McpServer) => {
       annotations: { idempotentHint: true },
 
       inputSchema: z.object({
-        taskId: z.uuid().describe("The ID of the task to update progress for."),
+        taskId: z
+          .uuid()
+          .optional()
+          .describe(
+            "Full task UUID. Defaults to the caller-owned task in X-Source-Task-Id; required outside task context.",
+          ),
         progress: z.string().optional().describe("The progress update to store."),
         status: z
-          .enum(["completed", "failed"])
+          .enum(["completed", "failed", "in_progress", "pending"])
           .optional()
-          .describe("Set to 'completed' or 'failed' to finish the task."),
+          .describe(
+            "Set to 'completed' or 'failed' to finish the task. 'in_progress' and 'pending' store progress only and do not change task status.",
+          ),
         output: z
           .string()
           .optional()
@@ -116,13 +135,37 @@ export const registerStoreProgressTool = (server: McpServer) => {
       outputSchema: storeProgressOutputSchema,
     },
     async (
-      { taskId, progress, status, output, failureReason, attachments, persistMemory, force },
+      {
+        taskId: requestedTaskId,
+        progress,
+        status: requestedStatus,
+        output,
+        failureReason,
+        attachments,
+        persistMemory,
+        force,
+      },
       requestInfo,
       _meta,
     ) => {
       if (!requestInfo.agentId) {
         return toolErr('Agent ID not found. The MCP client should define the "X-Agent-ID" header.');
       }
+
+      const taskId = requestedTaskId ?? requestInfo.sourceTaskId;
+      if (!taskId || !z.uuid().safeParse(taskId).success) {
+        return toolErr("Supply taskId as the full task UUID; no valid task context is available.");
+      }
+      if (!requestedTaskId) {
+        const contextTask = await getTaskById(taskId);
+        if (!contextTask || contextTask.agentId !== requestInfo.agentId) {
+          return toolErr("Omitted taskId requires a source task assigned to the calling agent.");
+        }
+      }
+      const status =
+        requestedStatus === "completed" || requestedStatus === "failed"
+          ? requestedStatus
+          : undefined;
 
       // Verify agent-fs pointers before opening the write transaction. The
       // registering agent's resolved config selects both credentials and the
@@ -225,6 +268,27 @@ export const registerStoreProgressTool = (server: McpServer) => {
 
         let updatedTask = existingTask;
         const isTerminal = isTerminalTaskStatus(existingTask.status);
+        // This call's own status can finish the task even though existingTask
+        // (its state before this call) is not yet terminal — gate on both so a
+        // completing call carrying blocked-waiting-shaped text (e.g. "awaiting
+        // review") never nudges toward defer-task.
+        const goingTerminal = status !== undefined && isTerminalTaskStatus(status);
+
+        // Computed against the task's state as of BEFORE this call's update,
+        // so "elapsed" reads as time since the prior check-in, not zero.
+        let blockedWaitingElapsedMs: number | undefined;
+        if (progress && !isTerminal && !goingTerminal && BLOCKED_WAITING_PATTERN.test(progress)) {
+          const referenceIso = existingTask.lastUpdatedAt ?? existingTask.createdAt;
+          if (referenceIso) {
+            const elapsed = Date.now() - new Date(referenceIso).getTime();
+            // Below the floor, a sub-minute check-in reads as "blocked" purely
+            // from noise, and defer-task buys nothing over just checking in
+            // again shortly — so treat it as not blocked-waiting yet.
+            if (elapsed >= BLOCKED_WAITING_MIN_ELAPSED_MS) {
+              blockedWaitingElapsedMs = elapsed;
+            }
+          }
+        }
 
         // Attachments — pointer-based, append-only. Insert each row inside
         // this transaction; the helper dedups by sha256 (when present) or by
@@ -396,6 +460,7 @@ export const registerStoreProgressTool = (server: McpServer) => {
             ? `Task "${taskId}" marked as ${status}.`
             : `Progress stored for task "${taskId}".`,
           task: updatedTask,
+          blockedWaitingElapsedMs,
         };
       });
 
@@ -406,145 +471,20 @@ export const registerStoreProgressTool = (server: McpServer) => {
         !("wasNoOp" in result && result.wasNoOp) &&
         !("wasForcedOverwrite" in result && result.wasForcedOverwrite);
 
-      // Index completed and failed tasks as memory (async, non-blocking).
-      // Skip on no-op (idempotent re-call on terminal task) to avoid duplicate
-      // memory entries / vector index pollution.
-      // Automatic/recurring tasks are noisy by default; require explicit opt-in.
-      if (
-        shouldRunTerminalSideEffects &&
-        shouldPersistTaskCompletionMemory(result.task, persistMemory)
-      ) {
-        (async () => {
-          try {
-            const taskContent =
-              status === "completed"
-                ? `Task: ${result.task!.task}\n\nOutput:\n${output || "(no output)"}`
-                : `Task: ${result.task!.task}\n\nFailure reason:\n${failureReason || "No reason provided"}\n\nThis task failed. Learn from this to avoid repeating the mistake.`;
-
-            // Skip indexing if there's truly no content
-            if (taskContent.length < 30) return;
-
-            const store = getMemoryStore();
-            const provider = getEmbeddingProvider();
-
-            const memory = await store.store({
-              agentId: requestInfo.agentId ?? null,
-              content: taskContent,
-              name: `Task: ${result.task!.task.slice(0, 80)}`,
-              scope: "agent",
-              source: "task_completion",
-              sourceTaskId: taskId,
-            });
-            const embedding = await provider.embed(taskContent);
-            if (embedding) {
-              await store.updateEmbedding(memory.id, embedding, provider.name);
-            }
-
-            // Auto-promote high-value completions to swarm memory (P3)
-            const shouldShareWithSwarm =
-              status === "completed" &&
-              (result.task!.taskType === "research" ||
-                result.task!.tags?.includes("knowledge") ||
-                result.task!.tags?.includes("shared"));
-
-            if (shouldShareWithSwarm) {
-              try {
-                const swarmMemory = await store.store({
-                  agentId: requestInfo.agentId ?? null,
-                  scope: "swarm",
-                  name: `Shared: ${result.task!.task.slice(0, 80)}`,
-                  content: `Task completed by agent ${requestInfo.agentId}:\n\n${taskContent}`,
-                  source: "task_completion",
-                  sourceTaskId: taskId,
-                });
-                const swarmEmbedding = await provider.embed(taskContent);
-                if (swarmEmbedding) {
-                  await store.updateEmbedding(swarmMemory.id, swarmEmbedding, provider.name);
-                }
-              } catch {
-                // Non-blocking — swarm memory promotion failure is not critical
-              }
-            }
-          } catch {
-            // Non-blocking — task completion memory failure should not affect task status
-          }
-        })().catch((err) =>
-          console.error(
-            "[store-progress] task completion memory write failed:",
-            scrubSecrets(err instanceof Error ? err.message : String(err)),
-          ),
-        );
-      }
-
-      if (shouldRunTerminalSideEffects) {
-        // Memory rater v1.5 — fire server-side raters on task completion.
-        // Plan: thoughts/taras/plans/2026-05-05-memory-rater-v1.5/step-2.md §5
-        //
-        // Read `memory_retrieval` rows for this task + concatenated session_logs
-        // and hand both to `runServerRaters`, which iterates the allow-listed
-        // server raters (currently just `implicit-citation`), stamps source,
-        // applies the configured weight multiplier, and persists via
-        // `applyRating`. The orchestration is extracted so it can be unit-tested
-        // with stub raters (see `src/tests/run-server-raters.test.ts`).
-        //
-        // Fire-and-forget: rater failure must NEVER affect task status.
-        (async () => {
-          try {
-            const retrievals = await getRetrievalsForTask(taskId);
-            if (retrievals.length === 0) return;
-
-            const retrievedMemoryIds = retrievals.map((r) => r.memoryId);
-            const logs = await getSessionLogsByTaskId(taskId);
-            const evidence = logs.map((l) => l.content).join("\n");
-
-            await runServerRaters({
-              taskId,
-              agentId: requestInfo.agentId ?? "",
-              retrievedMemoryIds,
-              evidence,
-            });
-          } catch (err) {
-            console.error(
-              "[store-progress] server-rater fire failed:",
-              err instanceof Error ? err.message : String(err),
-            );
-          }
-        })().catch((err) =>
-          console.error(
-            "[store-progress] server rater run failed:",
-            scrubSecrets(err instanceof Error ? err.message : String(err)),
-          ),
-        );
-      }
-
-      // Create follow-up task for the lead when a worker task finishes.
-      // This replaces the old poll-based tasks_finished trigger which was unreliable.
-      // Skip for workflow-managed tasks — the workflow engine handles sequencing via resume.ts.
-      // Skip on no-op (idempotent re-call on terminal task) to avoid duplicate follow-ups.
-      if (
-        status &&
-        result.success &&
-        result.task &&
-        !result.task.workflowRunId &&
-        !("wasNoOp" in result && result.wasNoOp) &&
-        !("wasForcedOverwrite" in result && result.wasForcedOverwrite)
-      ) {
-        try {
-          const followUp = await createWorkerTaskFollowUp({
-            task: result.task,
-            status,
-            output,
-            failureReason,
-          });
-          if (followUp) {
-            console.log(
-              `[store-progress] Created follow-up task ${followUp.id.slice(0, 8)} for ${status} task ${taskId.slice(0, 8)}`,
-            );
-          }
-        } catch (err) {
-          // Non-blocking — follow-up task creation failure should not affect the store-progress response
-          console.warn(`[store-progress] Failed to create follow-up task: ${err}`);
-        }
+      // Post-commit terminal side effects (completion memory, server raters,
+      // lead follow-up). Shared with `defer-task` — see
+      // src/tasks/task-terminal-effects.ts. Skipped on no-op (idempotent
+      // re-call on a terminal task) and on forced text-only overwrites, so a
+      // replay never duplicates memories or follow-up tasks.
+      if (shouldRunTerminalSideEffects && status) {
+        await runTaskTerminalEffects({
+          task: result.task!,
+          status,
+          output,
+          failureReason,
+          agentId: requestInfo.agentId,
+          persistMemory,
+        });
       }
 
       const { success, message } = result;
@@ -561,6 +501,10 @@ export const registerStoreProgressTool = (server: McpServer) => {
         ...("wasNoOp" in result && result.wasNoOp ? { wasNoOp: true } : {}),
         ...("wasForcedOverwrite" in result && result.wasForcedOverwrite
           ? { wasForcedOverwrite: true }
+          : {}),
+        ...("blockedWaitingElapsedMs" in result &&
+        typeof result.blockedWaitingElapsedMs === "number"
+          ? { blockedWaitingElapsedMs: result.blockedWaitingElapsedMs }
           : {}),
       };
       return success ? toolOk(message, { data }) : toolErr(message, { data });

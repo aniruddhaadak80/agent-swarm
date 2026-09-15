@@ -215,11 +215,27 @@ describe("Session templates: MUST pointers", () => {
     );
   });
 
-  test("the lead contract names the renamed desplega commands", () => {
+  test("the worker contract names the four task endings", () => {
+    const result = resolveTemplate("system.agent.worker", {});
+    expect(result.text).toContain("The task has four endings.");
+    for (const ending of ["`completed`", "`defer-task`", "`request-human-input`", "`failed`"]) {
+      expect(result.text).toContain(ending);
+    }
+  });
+
+  test("the lead contract names the delegation tools", () => {
     const result = resolveTemplate("system.agent.lead", {});
-    expect(result.text).toContain("/researching");
-    expect(result.text).toContain("/planning");
-    expect(result.text).toContain("/implementing");
+    expect(result.text).toContain(
+      "`send-task`: include `routingReason` with `agentId`. Read results via `get-task-details`.",
+    );
+  });
+
+  test("the lead contract names the desplega skills, not slash commands", () => {
+    const result = resolveTemplate("system.agent.lead", {});
+    expect(result.text).toContain("`researching` skill");
+    expect(result.text).toContain("`planning` skill");
+    expect(result.text).toContain("`implementing` skill");
+    expect(result.text).not.toContain("/researching");
   });
 });
 
@@ -247,6 +263,14 @@ describe("Session templates: composite resolution", () => {
       expect(result.text).not.toContain("{{@template[");
       expect(result.text).toContain("You are Ada,");
       expect(result.text).toContain("composite-agent-001");
+      // Every provider receives the same reply limits, skill routing, and exceptions.
+      expect(result.text).toContain("Simple replies: one to three sentences");
+      expect(result.text).toContain("Routine replies: under 120 words");
+      expect(result.text).toContain("Use more detail for requested depth or essential evidence");
+      expect(result.text).toContain("Use the `comms` skill when available");
+      expect(result.text).toContain("Follow the current request and Requester Profile");
+      expect(result.text).toContain("Do not shorten investigation, required artifacts");
+      expect(result.text).toContain("Output schemas and channel delivery rules");
     });
   }
 

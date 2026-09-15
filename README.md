@@ -5,16 +5,19 @@
 > **This repo evolves every single day.** [Watch now →](https://github.com/desplega-ai/agent-swarm/subscription)
 <p align="center"><video src="https://github.com/user-attachments/assets/e220712e-c54d-4f46-b059-bac04639d229" controls muted playsinline width="720"></video></p>
 <p align="center"><sub>▸ <a href="./assets/agent-swarm.mp4">daily evolution</a> · <a href="./assets/agent-swarm-slack-to-pr.mp4">slack → pr</a> · <a href="./assets/video-source">Making of</a></sub></p>
-<p align="center"><a href="https://agent-swarm.dev"><img src="https://img.shields.io/badge/Website-agent--swarm.dev-000?style=for-the-badge" alt="Website"></a> <a href="https://docs.agent-swarm.dev"><img src="https://img.shields.io/badge/Docs-docs.agent--swarm.dev-amber?style=for-the-badge" alt="Docs"></a> <a href="https://app.agent-swarm.dev"><img src="https://img.shields.io/badge/Dashboard-app.agent--swarm.dev-blue?style=for-the-badge" alt="Dashboard"></a> <a href="https://discord.gg/KZgfyyDVZa"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord"></a> <a href="https://x.com/desplegalabs"><img src="https://img.shields.io/badge/𝕏-@desplegalabs-000?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X"></a> <a href="https://www.linkedin.com/company/desplega-labs/"><img src="https://img.shields.io/badge/LinkedIn-Desplega%20Labs-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="Desplega Labs on LinkedIn"></a></p>
+<p align="center"><a href="https://agent-swarm.dev"><img src="https://img.shields.io/badge/Website-agent--swarm.dev-000?style=for-the-badge" alt="Website"></a> <a href="https://docs.agent-swarm.dev"><img src="https://img.shields.io/badge/Docs-docs.agent--swarm.dev-amber?style=for-the-badge" alt="Docs"></a> <a href="https://app.agent-swarm.dev"><img src="https://img.shields.io/badge/Dashboard-app.agent--swarm.dev-blue?style=for-the-badge" alt="Dashboard"></a> <a href="https://discord.gg/KZgfyyDVZa"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord"></a> <a href="https://x.com/desplegalabs"><img src="https://img.shields.io/badge/𝕏-@desplegalabs-000?style=for-the-badge&logo=x&logoColor=white" alt="Follow on X"></a> <a href="https://www.linkedin.com/company/desplega-labs/"><img src="https://img.shields.io/badge/LinkedIn-Desplega%20Labs-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="Desplega Labs on LinkedIn"></a> <a href="https://www.youtube.com/@desplega-labs/videos"><img src="https://img.shields.io/badge/YouTube-Desplega%20Labs-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Desplega Labs on YouTube"></a></p>
 
 agent-swarm.dev is an open-source operating system for AI work. A lead agent delegates goals to workers such as Claude Code or Codex. Isolated containers, shared memory, tools, schedules, and review gates preserve work across sessions.
 
 ## What you get
 
 - A lead agent that receives work from Slack, repositories, issue trackers, email, or the API
+- [Schema-validated task results](./MCP.md#send-task) for callers that need structured JSON output
+- [Dashboard file attachments](https://docs.agent-swarm.dev/docs/ui#file-attachments) by drag-and-drop or file picker
 - Workers in isolated Docker containers with development environments
 - Memory and identity that persist across sessions
 - Workflows, schedules, scripts, and apps for recurring work
+- [Realtime rooms](./runbooks/realtime-rooms.md) for shared page state, presence, and live channels
 - Your choice of harness and models: Claude Code, Codex, pi, opencode, Devin, or ACP agents
 
 ```mermaid
@@ -63,6 +66,17 @@ Give your coding agent the operator skill for Docker Compose or Kubernetes:
 npx skills add desplega-ai/agent-swarm
 ```
 
+Or install it as a plugin in your harness:
+
+| Harness | Command |
+|---|---|
+| Claude Code | `/plugin marketplace add desplega-ai/agent-swarm` then `/plugin install agent-swarm@agent-swarm` |
+| Codex | `codex plugin add https://github.com/desplega-ai/agent-swarm` (or use `npx skills` above) |
+| Cursor | `/add-plugin desplega-ai/agent-swarm` |
+| Gemini CLI | `gemini extensions install https://github.com/desplega-ai/agent-swarm` |
+| Antigravity / Factory Droid | `droid plugin marketplace add https://github.com/desplega-ai/agent-swarm` then `droid plugin install agent-swarm@agent-swarm` |
+| OpenCode, pi, Devin, Kimi, others | `npx skills add desplega-ai/agent-swarm` |
+
 Or use the examples directly:
 
 ```bash
@@ -93,7 +107,7 @@ Read [CONTRIBUTING.md](./CONTRIBUTING.md), fork the repository, create a branch,
 
 ## Star History
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="./assets/star-history-dark.svg" /> <source media="(prefers-color-scheme: light)" srcset="./assets/star-history-light.svg" /> <img alt="Star History Chart" src="./assets/star-history-light.svg" /></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://api.desplega.agent-swarm.dev/p/e3473addceb348c0bed6cb93bd5aa532" /> <source media="(prefers-color-scheme: light)" srcset="https://api.desplega.agent-swarm.dev/p/4b5cdc17c45e4a63845fb0a71ed9609c" /> <img alt="Star History Chart" src="https://api.desplega.agent-swarm.dev/p/4b5cdc17c45e4a63845fb0a71ed9609c" /></picture>
 
 ## License
 

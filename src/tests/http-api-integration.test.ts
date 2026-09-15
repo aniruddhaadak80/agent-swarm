@@ -5,7 +5,7 @@
  * and tests every API endpoint for correct behavior.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { rm, unlink } from "node:fs/promises";
 import type { Subprocess } from "bun";
 import { Webhook } from "svix";
@@ -388,6 +388,83 @@ describe("Agents", () => {
     expect(unrelated.body.events).toHaveLength(0);
   });
 
+  test("PUT /api/agents/:id/profile — expectedHashes drops a stale field, keeps the rest", async () => {
+    const sha = (v: string) => createHash("sha256").update(v).digest("hex");
+    const base = "# CLAUDE.md\n\nbase the session materialized";
+    const seeded = await put(`/api/agents/${ids.workerAgent}/profile`, {
+      body: { claudeMd: base, changeSource: "self_edit" },
+      agentId: ids.workerAgent,
+    });
+    expect(seeded.status).toBe(200);
+
+    const reconciledClaudeMd = async () =>
+      (
+        await get(
+          `/api/events?${new URLSearchParams({
+            event: "system.profile_sync_reconciled",
+            agentId: ids.workerAgent,
+            dataField: "claudeMd",
+            limit: "100",
+          })}`,
+          { agentId: ids.workerAgent },
+        )
+      ).body.events.length as number;
+    const before = await reconciledClaudeMd();
+
+    // A copy based on something the DB already moved past: dropped, 200, and
+    // the other field of the same sync still lands.
+    const stale = await put(`/api/agents/${ids.workerAgent}/profile`, {
+      body: {
+        claudeMd: "stale copy",
+        toolsMd: "fresh tools",
+        changeSource: "session_sync",
+        expectedHashes: { claudeMd: sha("an older materialization") },
+      },
+      agentId: ids.workerAgent,
+    });
+    expect(stale.status).toBe(200);
+    expect(stale.body.claudeMd).toBe(base);
+    expect(stale.body.toolsMd).toBe("fresh tools");
+    expect(await reconciledClaudeMd()).toBe(before); // not written → not reconciled
+    const conflictEvents = await get(
+      `/api/events?${new URLSearchParams({
+        event: "system.profile_sync_conflict",
+        agentId: ids.workerAgent,
+        dataField: "claudeMd",
+        limit: "1",
+      })}`,
+      { agentId: ids.workerAgent },
+    );
+    expect(conflictEvents.body.events[0]).toMatchObject({
+      event: "system.profile_sync_conflict",
+      status: "skipped",
+      data: {
+        field: "claudeMd",
+        expectedHash: sha("an older materialization"),
+        currentHash: sha(base),
+        changeSource: "session_sync",
+      },
+    });
+
+    // An edit on top of the current value applies.
+    const edited = await put(`/api/agents/${ids.workerAgent}/profile`, {
+      body: {
+        claudeMd: "edited in session",
+        changeSource: "session_sync",
+        expectedHashes: { claudeMd: sha(base) },
+      },
+      agentId: ids.workerAgent,
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.claudeMd).toBe("edited in session");
+
+    const malformed = await put(`/api/agents/${ids.workerAgent}/profile`, {
+      body: { claudeMd: "x", expectedHashes: { claudeMd: "not-a-sha256" } },
+      agentId: ids.workerAgent,
+    });
+    expect(malformed.status).toBe(400);
+  });
+
   test("PUT /api/agents/:id/profile — non-existent returns 404", async () => {
     const { status } = await put(`/api/agents/${randomUUID()}/profile`, {
       body: { role: "ghost" },
@@ -467,11 +544,25 @@ describe("Tasks", () => {
       body: {
         task: "Integration test task 2",
         agentId: ids.workerAgent,
+        routingReason: "human_pinned",
       },
     });
     expect(status).toBe(201);
     expect(body.agentId).toBe(ids.workerAgent);
+    expect(body.routingReason).toBe("human_pinned");
     ids.task2 = body.id;
+  });
+
+  test("POST /api/tasks — rejects explicit assignment without routingReason", async () => {
+    const { status, body } = await post("/api/tasks", {
+      agentId: ids.leadAgent,
+      body: {
+        task: "Missing routing reason",
+        agentId: ids.workerAgent,
+      },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain("routingReason");
   });
 
   test("GET /api/tasks — list all tasks", async () => {
@@ -613,7 +704,7 @@ describe("Tasks", () => {
 
     const created = await post("/api/tasks", {
       agentId: ids.leadAgent,
-      body: { task: "Terminal finish guard test", agentId },
+      body: { task: "Terminal finish guard test", agentId, routingReason: "human_pinned" },
     });
     expect(created.status).toBe(201);
     const taskId = created.body.id as string;
@@ -684,7 +775,11 @@ describe("Tasks", () => {
     // Create a task for worker, try to finish as worker2
     const createRes = await post("/api/tasks", {
       agentId: ids.leadAgent,
-      body: { task: "Forbidden finish test", agentId: ids.workerAgent },
+      body: {
+        task: "Forbidden finish test",
+        agentId: ids.workerAgent,
+        routingReason: "human_pinned",
+      },
     });
     const taskId = createRes.body.id;
     const { status } = await post(`/api/tasks/${taskId}/finish`, {
@@ -713,7 +808,11 @@ describe("Task Pause & Resume", () => {
   test("create a task to pause", async () => {
     const { body } = await post("/api/tasks", {
       agentId: ids.leadAgent,
-      body: { task: "Pause test task", agentId: ids.workerAgent2 },
+      body: {
+        task: "Pause test task",
+        agentId: ids.workerAgent2,
+        routingReason: "human_pinned",
+      },
     });
     pauseTaskId = body.id;
   });
@@ -1085,7 +1184,11 @@ describe("Polling", () => {
 
     const created = await post("/api/tasks", {
       agentId: ids.leadAgent,
-      body: { task: "Task with an attachment", agentId: attachAgent },
+      body: {
+        task: "Task with an attachment",
+        agentId: attachAgent,
+        routingReason: "human_pinned",
+      },
     });
     expect(created.status).toBe(201);
     const taskId = created.body.id as string;
@@ -1574,6 +1677,7 @@ describe("Memory", () => {
         body: {
           task: `Automatic memory integration test: ${taskCase.label}`,
           agentId: ids.workerAgent,
+          routingReason: "human_pinned",
           source: taskCase.source,
           taskType: taskCase.taskType,
           tags: taskCase.tags,
@@ -1604,6 +1708,7 @@ describe("Memory", () => {
       body: {
         task: "Scheduled memory integration opt-in test",
         agentId: ids.workerAgent,
+        routingReason: "human_pinned",
         source: "schedule",
         taskType: "daily-digest",
         tags: ["schedule:test"],
@@ -1633,6 +1738,7 @@ describe("Memory", () => {
       body: {
         task: "Manual memory integration test",
         agentId: ids.workerAgent,
+        routingReason: "human_pinned",
       },
     });
     expect(task.status).toBe(201);

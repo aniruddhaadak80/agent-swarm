@@ -2163,6 +2163,8 @@ export interface paths {
                                     max: number;
                                     available: number;
                                 };
+                                /** @enum {string} */
+                                claudeTransport?: "cli" | "sdk";
                             })[];
                         };
                     };
@@ -2314,7 +2316,53 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get an agent's runtime configuration
+         * @description Returns the agent's explicit Claude transport override, the effective transport after config precedence, and whether Claude Bridge is effective. Values never include credentials.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    repoId?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Agent runtime configuration */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            claude: {
+                                /** @enum {string|null} */
+                                transport: "cli" | "sdk" | null;
+                                /** @enum {string} */
+                                effectiveTransport: "cli" | "sdk";
+                                /** @enum {string} */
+                                inheritedTransport: "cli" | "sdk";
+                                bridgeEffective: boolean;
+                            };
+                        };
+                    };
+                };
+                /** @description Agent not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
         delete?: never;
@@ -2322,11 +2370,13 @@ export interface paths {
         head?: never;
         /**
          * Update an agent's runtime harness and default model
-         * @description Updates `agents.harness_provider` and upserts agent-scoped `swarm_config` rows for HARNESS_PROVIDER, MODEL_OVERRIDE, and REASONING_EFFORT_OVERRIDE. The settings apply to future provider sessions. For `model` and `reasoning_effort`: omit the field to leave it unchanged, send `null` to clear the corresponding override, or send a value to set it.
+         * @description Updates `agents.harness_provider` and agent-scoped runtime config. The settings apply to future provider sessions. For `model`, `reasoning_effort`, and `claude.transport`: omit the field to leave it unchanged, send `null` to clear the corresponding override, or send a value to set it.
          */
         patch: {
             parameters: {
-                query?: never;
+                query?: {
+                    repoId?: string;
+                };
                 header?: never;
                 path: {
                     id: string;
@@ -2353,6 +2403,10 @@ export interface paths {
                             options?: {
                                 [key: string]: string | boolean;
                             };
+                        };
+                        claude?: {
+                            /** @enum {string|null} */
+                            transport?: "cli" | "sdk" | null;
                         };
                     };
                 };
@@ -2619,6 +2673,14 @@ export interface paths {
                         changeSource?: string;
                         changedByAgentId?: string;
                         changeReason?: string;
+                        expectedHashes?: {
+                            soulMd?: string;
+                            identityMd?: string;
+                            toolsMd?: string;
+                            claudeMd?: string;
+                            setupScript?: string;
+                            heartbeatMd?: string;
+                        };
                     };
                 };
             };
@@ -2747,6 +2809,8 @@ export interface paths {
                                 max: number;
                                 available: number;
                             };
+                            /** @enum {string} */
+                            claudeTransport?: "cli" | "sdk";
                         };
                     };
                 };
@@ -5174,7 +5238,7 @@ export interface paths {
             parameters: {
                 query?: {
                     category?: "tool" | "skill" | "session" | "api" | "task" | "workflow" | "system";
-                    event?: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "script.global_upsert" | "schedule.deleted";
+                    event?: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "system.profile_sync_conflict" | "script.global_upsert" | "schedule.deleted";
                     status?: "ok" | "error" | "timeout" | "skipped";
                     source?: "worker" | "api" | "hook" | "scheduler" | "cli";
                     agentId?: string;
@@ -5219,7 +5283,7 @@ export interface paths {
                         /** @enum {string} */
                         category: "tool" | "skill" | "session" | "api" | "task" | "workflow" | "system";
                         /** @enum {string} */
-                        event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "script.global_upsert" | "schedule.deleted";
+                        event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "system.profile_sync_conflict" | "script.global_upsert" | "schedule.deleted";
                         /** @enum {string} */
                         status?: "ok" | "error" | "timeout" | "skipped";
                         /** @enum {string} */
@@ -5291,7 +5355,7 @@ export interface paths {
                             /** @enum {string} */
                             category: "tool" | "skill" | "session" | "api" | "task" | "workflow" | "system";
                             /** @enum {string} */
-                            event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "script.global_upsert" | "schedule.deleted";
+                            event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "system.profile_sync_conflict" | "script.global_upsert" | "schedule.deleted";
                             /** @enum {string} */
                             status?: "ok" | "error" | "timeout" | "skipped";
                             /** @enum {string} */
@@ -7098,6 +7162,15 @@ export interface paths {
                 };
                 /** @description Validation error */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Permission denied: requires memory owner or lead */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -9133,7 +9206,7 @@ export interface paths {
                                 title: string;
                                 description?: string;
                                 /** @enum {string} */
-                                contentType: "text/html" | "application/json";
+                                contentType: "text/html" | "application/json" | "image/svg+xml";
                                 /** @enum {string} */
                                 authMode: "public" | "authed" | "password";
                                 passwordHash?: string;
@@ -9173,7 +9246,7 @@ export interface paths {
                         title: string;
                         description?: string;
                         /** @enum {string} */
-                        contentType: "text/html" | "application/json";
+                        contentType: "text/html" | "application/json" | "image/svg+xml";
                         /**
                          * @default authed
                          * @enum {string}
@@ -9289,7 +9362,7 @@ export interface paths {
                         title?: string;
                         description?: string | null;
                         /** @enum {string} */
-                        contentType?: "text/html" | "application/json";
+                        contentType?: "text/html" | "application/json" | "image/svg+xml";
                         /** @enum {string} */
                         authMode?: "public" | "authed" | "password";
                         password?: string | null;
@@ -9623,7 +9696,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Render a page (HTML inline; JSON redirects to SPA) */
+        /** Render a page (HTML/SVG inline; JSON redirects to SPA) */
         get: {
             parameters: {
                 query?: never;
@@ -9635,7 +9708,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Rendered HTML page */
+                /** @description Rendered HTML page or raw SVG image */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -9716,7 +9789,7 @@ export interface paths {
                             title: string;
                             description?: string;
                             /** @enum {string} */
-                            contentType: "text/html" | "application/json";
+                            contentType: "text/html" | "application/json" | "image/svg+xml";
                             /** @enum {string} */
                             authMode: "public" | "authed" | "password";
                             body: string;
@@ -10333,6 +10406,7 @@ export interface paths {
                                 taskId: string;
                                 task: components["schemas"]["AgentTask"];
                                 requestedBy?: {
+                                    id?: string;
                                     name: string;
                                     email?: string;
                                     role?: string;
@@ -10353,6 +10427,7 @@ export interface paths {
                                     }[];
                                 };
                                 requestedBy?: {
+                                    id?: string;
                                     name: string;
                                     email?: string;
                                     role?: string;
@@ -10755,7 +10830,7 @@ export interface paths {
                         defaultBranch?: string;
                         autoClone?: boolean;
                         hooks?: components["schemas"]["RepoHooks"] | null;
-                        guidelines?: components["schemas"]["RepoGuidelines"];
+                        guidelines?: components["schemas"]["RepoGuidelinesInput"];
                     };
                 };
             };
@@ -10886,7 +10961,7 @@ export interface paths {
                         defaultBranch?: string;
                         autoClone?: boolean;
                         hooks?: components["schemas"]["RepoHooks"];
-                        guidelines?: components["schemas"]["RepoGuidelines"];
+                        guidelines?: components["schemas"]["RepoGuidelinesInput"];
                     };
                 };
             };
@@ -10920,6 +10995,465 @@ export interface paths {
                         "application/json": {
                             error: string;
                         };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/@swarm/realtime.js": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browser SDK for realtime rooms and channels */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description JavaScript module */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a realtime room */
+        get: {
+            parameters: {
+                query?: {
+                    name?: string;
+                    namespace?: string;
+                    schemaVersion?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Room view */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            room: {
+                                namespace: string;
+                                name: string;
+                                schemaVersion: number;
+                                generation: string;
+                                stale: boolean;
+                                state?: unknown;
+                                snapshot: string;
+                                bytes: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Validation or room error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room access denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Read a realtime room */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @default default */
+                        name?: string;
+                        namespace?: string;
+                        /** @default 1 */
+                        schemaVersion?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Room view */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            room: {
+                                namespace: string;
+                                name: string;
+                                schemaVersion: number;
+                                generation: string;
+                                stale: boolean;
+                                state?: unknown;
+                                snapshot: string;
+                                bytes: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Validation or room error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room access denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Request body exceeds the room body limit */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply operations to a realtime room */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @default default */
+                        name?: string;
+                        namespace?: string;
+                        /** @default 1 */
+                        schemaVersion?: number;
+                        operations: ({
+                            /** @enum {string} */
+                            type: "set";
+                            path: (string | number)[];
+                            value: unknown;
+                        } | {
+                            /** @enum {string} */
+                            type: "delete";
+                            path: (string | number)[];
+                        } | {
+                            /** @enum {string} */
+                            type: "insert";
+                            path: (string | number)[];
+                            index: number;
+                            values: unknown[];
+                        } | {
+                            /** @enum {string} */
+                            type: "increment";
+                            path: (string | number)[];
+                            by: number;
+                        } | {
+                            /** @enum {string} */
+                            type: "text";
+                            path: (string | number)[];
+                            index: number;
+                            deleteCount?: number;
+                            insert?: string;
+                        })[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Changed room view */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            room: {
+                                namespace: string;
+                                name: string;
+                                schemaVersion: number;
+                                generation: string;
+                                stale: boolean;
+                                state?: unknown;
+                                snapshot: string;
+                                bytes: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Validation or room error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room write denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room schema or size conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Request body exceeds the room body limit */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset a realtime room */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @default default */
+                        name?: string;
+                        namespace?: string;
+                        /** @default 1 */
+                        schemaVersion?: number;
+                        state?: unknown;
+                    };
+                };
+            };
+            responses: {
+                /** @description Reset room view */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            room: {
+                                namespace: string;
+                                name: string;
+                                schemaVersion: number;
+                                generation: string;
+                                stale: boolean;
+                                state?: unknown;
+                                snapshot: string;
+                                bytes: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Validation or room error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Room write denied */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Request body exceeds the room body limit */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/decode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decode a realtime room snapshot */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        value?: unknown;
+                    };
+                };
+            };
+            responses: {
+                /** @description Decoded room state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            schemaVersion: number;
+                            generation: string;
+                            state?: unknown;
+                        };
+                    };
+                };
+                /** @description Invalid room snapshot */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Request body exceeds the room body limit */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
             };
@@ -10994,6 +11528,7 @@ export interface paths {
                                 /** Format: date-time */
                                 nextRunAt?: string;
                                 createdByAgentId?: string;
+                                parentTaskId?: string;
                                 /** @default UTC */
                                 timezone: string;
                                 /** @default 0 */
@@ -11056,6 +11591,7 @@ export interface paths {
                                 /** Format: date-time */
                                 nextRunAt?: string;
                                 createdByAgentId?: string;
+                                parentTaskId?: string;
                                 /** @default UTC */
                                 timezone: string;
                                 /** @default 0 */
@@ -11179,6 +11715,7 @@ export interface paths {
                             /** Format: date-time */
                             nextRunAt?: string;
                             createdByAgentId?: string;
+                            parentTaskId?: string;
                             /** @default UTC */
                             timezone: string;
                             /** @default 0 */
@@ -11297,6 +11834,7 @@ export interface paths {
                                 /** Format: date-time */
                                 nextRunAt?: string;
                                 createdByAgentId?: string;
+                                parentTaskId?: string;
                                 /** @default UTC */
                                 timezone: string;
                                 /** @default 0 */
@@ -11415,6 +11953,7 @@ export interface paths {
                             /** Format: date-time */
                             nextRunAt?: string;
                             createdByAgentId?: string;
+                            parentTaskId?: string;
                             /** @default UTC */
                             timezone: string;
                             /** @default 0 */
@@ -11543,6 +12082,7 @@ export interface paths {
                             /** Format: date-time */
                             nextRunAt?: string;
                             createdByAgentId?: string;
+                            parentTaskId?: string;
                             /** @default UTC */
                             timezone: string;
                             /** @default 0 */
@@ -11730,6 +12270,7 @@ export interface paths {
                             /** Format: date-time */
                             nextRunAt?: string;
                             createdByAgentId?: string;
+                            parentTaskId?: string;
                             /** @default UTC */
                             timezone: string;
                             /** @default 0 */
@@ -12728,6 +13269,122 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint an ephemeral session token for an ACP provider session
+         * @description Returns a short-lived aseph_ bearer for use by the ACP adapter in place of the full operator key. The token expires at the requested TTL and is actively revoked when the session ends. Only the operator key may mint session tokens.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        agentId: string;
+                        taskId: string;
+                        ttlMs: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Minted token plaintext (returned once) and its stable token ID */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            tokenId: string;
+                            plaintext: string;
+                        };
+                    };
+                };
+                /** @description Validation error */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an ephemeral session token
+         * @description Revokes an aseph_ bearer token by ID. No-op if already revoked.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    tokenId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Token revoked (or was already revoked) */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -14719,6 +15376,7 @@ export interface paths {
                                 /** Format: date-time */
                                 nextRunAt?: string;
                                 createdByAgentId?: string;
+                                parentTaskId?: string;
                                 /** @default UTC */
                                 timezone: string;
                                 /** @default 0 */
@@ -15138,6 +15796,9 @@ export interface paths {
                     "application/json": {
                         task: string;
                         agentId?: string;
+                        /** @enum {string} */
+                        routingReason?: "skill" | "continuity" | "overflow" | "human_pinned" | "reroute_fault";
+                        routingNote?: string;
                         taskType?: string;
                         tags?: string[];
                         priority?: number;
@@ -15284,7 +15945,10 @@ export interface paths {
                         /** @enum {string} */
                         provider?: "claude" | "codex" | "pi" | "claude-managed" | "opencode" | "acp";
                         model?: string;
-                        providerMeta?: Record<string, never>;
+                        providerMeta?: {
+                            /** @enum {string} */
+                            transport?: "cli" | "sdk";
+                        };
                         harnessVariant?: string;
                         harnessVariantMeta?: {
                             [key: string]: unknown;
@@ -16037,7 +16701,9 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            tasks: components["schemas"]["AgentTask"][];
+                            tasks: (components["schemas"]["AgentTask"] & {
+                                attachments: components["schemas"]["TaskAttachment"][];
+                            })[];
                         };
                     };
                 };
@@ -19140,7 +19806,7 @@ export interface paths {
                         type?: string;
                         /** @description Human-readable label for UI display */
                         label?: string;
-                        /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
+                        /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
                         config?: {
                             [key: string]: unknown;
                         };
@@ -19854,6 +20520,9 @@ export interface components {
              * @enum {string}
              */
             source: "mcp" | "slack" | "api" | "ui" | "github" | "gitlab" | "agentmail" | "system" | "schedule" | "workflow" | "linear" | "jira";
+            /** @enum {string} */
+            routingReason?: "skill" | "continuity" | "overflow" | "human_pinned" | "reroute_fault";
+            routingNote?: string;
             taskType?: string;
             /** @default [] */
             tags: string[];
@@ -20190,7 +20859,7 @@ export interface components {
             /** @enum {string} */
             category: "tool" | "skill" | "session" | "api" | "task" | "workflow" | "system";
             /** @enum {string} */
-            event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "script.global_upsert" | "schedule.deleted";
+            event: "tool.start" | "tool.end" | "skill.invoke" | "skill.complete" | "session.start" | "session.end" | "session.resume" | "session.cost" | "api.request" | "api.error" | "task.poll" | "task.assign" | "task.timeout" | "workflow.step.start" | "workflow.step.end" | "workflow.run.start" | "workflow.run.end" | "system.boot" | "system.migration" | "system.error" | "system.profile_sync_rejected" | "system.profile_sync_reconciled" | "system.profile_sync_conflict" | "script.global_upsert" | "schedule.deleted";
             /** @enum {string} */
             status: "ok" | "error" | "timeout" | "skipped";
             /** @enum {string} */
@@ -20395,7 +21064,7 @@ export interface components {
             title: string;
             description?: string;
             /** @enum {string} */
-            contentType: "text/html" | "application/json";
+            contentType: "text/html" | "application/json" | "image/svg+xml";
             /** @enum {string} */
             authMode: "public" | "authed" | "password";
             passwordHash?: string;
@@ -20419,7 +21088,7 @@ export interface components {
             title: string;
             description?: string;
             /** @enum {string} */
-            contentType: "text/html" | "application/json";
+            contentType: "text/html" | "application/json" | "image/svg+xml";
             /** @enum {string} */
             authMode: "public" | "authed" | "password";
             passwordHash?: string;
@@ -20508,6 +21177,13 @@ export interface components {
             enabled: boolean;
         };
         RepoGuidelines: {
+            prChecks: string[];
+            mergeChecks: string[];
+            /** @default false */
+            allowMerge: boolean;
+            review: string[];
+        } | null;
+        RepoGuidelinesInput: {
             prChecks: string[];
             mergeChecks: string[];
             /** @default false */
@@ -20723,7 +21399,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            eventType: "agent_joined" | "agent_status_change" | "agent_left" | "task_created" | "task_status_change" | "task_progress" | "task_steering" | "task_offered" | "task_accepted" | "task_rejected" | "task_claimed" | "task_claim_rejected_affinity" | "task_dispatch_rejected_affinity" | "task_authorization_rejected" | "task_recovery_authorization" | "task_released" | "channel_message" | "service_registered" | "service_unregistered" | "service_status_change" | "budget.upserted" | "budget.deleted" | "pricing.inserted" | "pricing.deleted" | "pricing.refresh" | "pricing.refresh.failed" | "task_superseded";
+            eventType: "agent_joined" | "agent_status_change" | "agent_left" | "task_created" | "task_status_change" | "task_progress" | "task_steering" | "task_offered" | "task_accepted" | "task_rejected" | "task_claimed" | "task_claim_rejected_affinity" | "task_dispatch_rejected_affinity" | "task_authorization_rejected" | "task_recovery_authorization" | "task_released" | "channel_message" | "service_registered" | "service_unregistered" | "service_status_change" | "budget.upserted" | "budget.deleted" | "pricing.inserted" | "pricing.deleted" | "pricing.refresh" | "pricing.refresh.failed" | "task_superseded" | "slack_delivery";
             agentId?: string;
             taskId?: string;
             oldValue?: string;
@@ -20865,7 +21541,7 @@ export interface components {
             type: string;
             /** @description Human-readable label for UI display */
             label?: string;
-            /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
+            /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
             config: {
                 [key: string]: unknown;
             };
@@ -21018,7 +21694,7 @@ export interface components {
                     type?: string;
                     /** @description Human-readable label for UI display */
                     label?: string;
-                    /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
+                    /** @description Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput}). */
                     config?: {
                         [key: string]: unknown;
                     };
@@ -23303,6 +23979,9 @@ export interface operations {
                     template?: string;
                     task?: string;
                     agentId?: string;
+                    /** @enum {string} */
+                    routingReason?: "skill" | "continuity" | "overflow" | "human_pinned" | "reroute_fault";
+                    routingNote?: string;
                     tags?: string[];
                     priority?: number;
                     offerMode?: boolean;

@@ -26,6 +26,7 @@ import { registerCreateMetricTool } from "./tools/create-metric";
 import { registerCreatePageTool } from "./tools/create-page";
 import { registerCredentialBindingsTool } from "./tools/credential-bindings";
 import { registerDbQueryTool } from "./tools/db-query";
+import { registerDeferTaskTool } from "./tools/defer-task";
 import { registerDeleteChannelTool } from "./tools/delete-channel";
 import { registerDeletePageTool } from "./tools/delete-page";
 import { registerGetMetricsTool } from "./tools/get-metrics";
@@ -87,6 +88,12 @@ import { registerRegisterServiceTool } from "./tools/register-service";
 import { registerGetReposTool, registerUpdateRepoTool } from "./tools/repos";
 import { registerRequestHumanInputTool } from "./tools/request-human-input";
 import { registerResolveUserTool } from "./tools/resolve-user";
+import {
+  registerRoomChangeTool,
+  registerRoomDecodeTool,
+  registerRoomGetTool,
+  registerRoomResetTool,
+} from "./tools/rooms";
 // Scheduling capability
 import {
   registerCreateScheduleTool,
@@ -415,6 +422,7 @@ export async function createServer(opts: { scriptsOnly?: boolean; fullSurface?: 
   if (hasCapability("scheduling")) {
     registerListSchedulesTool(server);
     registerCreateScheduleTool(server);
+    registerDeferTaskTool(server);
     registerUpdateScheduleTool(server);
     registerPatchScheduleTool(server);
     registerDeleteScheduleTool(server);
@@ -501,6 +509,10 @@ export async function createServer(opts: { scriptsOnly?: boolean; fullSurface?: 
     registerKvDeleteTool(server);
     registerKvIncrTool(server);
     registerKvListTool(server);
+    registerRoomGetTool(server);
+    registerRoomChangeTool(server);
+    registerRoomResetTool(server);
+    registerRoomDecodeTool(server);
   }
 
   // Slack capability - Slack integration tools (no-op if Slack is not configured)

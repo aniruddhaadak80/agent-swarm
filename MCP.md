@@ -75,6 +75,7 @@ SDK allowlist instead), and HTTP REST routes are generally not gated.
 - [Scheduling Tools](#scheduling-tools)
   - [list-schedules](#list-schedules)
   - [create-schedule](#create-schedule)
+  - [defer-task](#defer-task)
   - [update-schedule](#update-schedule)
   - [patch-schedule](#patch-schedule)
   - [delete-schedule](#delete-schedule)
@@ -140,6 +141,10 @@ SDK allowlist instead), and HTTP REST routes are generally not gated.
   - [kv-delete](#kv-delete)
   - [kv-incr](#kv-incr)
   - [kv-list](#kv-list)
+  - [room-get](#room-get)
+  - [room-change](#room-change)
+  - [room-reset](#room-reset)
+  - [room-decode](#room-decode)
 - [Slack Tools](#slack-tools)
   - [slack-reply](#slack-reply)
   - [slack-read](#slack-read)
@@ -282,8 +287,9 @@ Sends a task to a specific agent, creates an unassigned task for the pool, or of
 | `slackThreadTs` | `string` | No | - | Slack thread timestamp. Required with slackChannelId for thread-level updates. |
 | `slackUserId` | `string` | No | - | Slack user ID of the original requester. |
 | `overrideSlackContext` | `boolean` | No | false | Explicitly route this task's Slack updates to a different channel/thread than its parent/contextKey. Requires slackChannelId AND slackThreadTs. Use only for deliberate cross-channel dispatch (e.g. escalation to another human's DM); logged for audit. Without this flag, a slackChannelId/slackThreadTs that disagrees with the parent task or inherited contextKey is rejected — omit the three Slack fields to inherit them from the parent as a unit instead. |
-| `requestedByUserId` | `string` | No | - | ID of the human user who originally requested this task chain. When omitted, inherited from the caller's current task so the attribution flows through multi-hop delegation automatically. |
+| `requestedByUserId` | `string` | No | - | Registered requester ID (32 lowercase hexadecimal characters). When omitted, inherited from the caller's current task so the attribution flows through multi-hop delegation automatically. |
 | `followUpConfig` | `unknown` | No | - | Control the lead follow-up created when this task finishes. When to use `followUpConfig`: set `disabled: true` when you'll wait for this task to complete inline and no follow-up is needed; set `onCompleted` / `onFailed` with specific instructions when you need to follow up effectively on a particular outcome of a long-running flow; for normal one-shot tasks, leave it unset because defaults are fine. It is most valuable for long-running / complex flows. |
+| `outputSchema` | `object` | No | - | Optional JSON Schema the assignee's final output must satisfy. store-progress rejects a completion that does not match. Supported keywords: type, required, properties, enum, const, items. |
 
 ### get-task-details
 
@@ -303,9 +309,9 @@ Stores the progress of a specific task. Can also mark task as completed or faile
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `taskId` | `uuid` | Yes | - | The ID of the task to update progress for. |
+| `taskId` | `uuid` | No | - | Full task UUID. Defaults to the caller-owned task in X-Source-Task-Id; required outside task context. |
 | `progress` | `string` | No | - | The progress update to store. |
-| `status` | `completed \| failed` | No | - | Set to 'completed' or 'failed' to finish the task. |
+| `status` | `completed \| failed \| in_progress \| pending` | No | - | Set to 'completed' or 'failed' to finish the task. 'in_progress' and 'pending' store progress only and do not change task status. |
 | `output` | `string` | No | - | The task result (used when completing). For Slack-originated tasks, this is published verbatim in the thread's outcome card: provide a concrete summary scaled to what was asked, including only the outcome and any links or IDs the human needs—not process narration, a transcript, or a restatement of the brief. |
 | `failureReason` | `string` | No | - | The reason for failure (used when failing). |
 | `attachments` | `array` | No | - | Pointer-based artifacts produced by this step — agent-fs path, URL, shared-fs path, or swarm Page. No inline file data; upload to agent-fs first and attach by path. Agent-fs pointers are verified before task state changes, using the explicit org/drive pair or the registering agent's configured defaults. May be sent on any call (progress or completion) and accumulates across calls; duplicates are de-duped by sha256 (when present) or by (kind, pointer, name). |
@@ -912,6 +918,25 @@ Create a new scheduled task. For recurring: provide cronExpression or intervalMs
 | `model` | `string` | No | - | Concrete model override for tasks created by this schedule. Interpreted by each assignee's harness/provider and does not switch providers. Prefer modelTier for portable intent. |
 | `modelTier` | `smol \| regular \| smart \| ultra` | No | - | Portable model tier for tasks created by this schedule: 'smol', 'regular', 'smart', or 'ultra'. Resolved by each assignee's harness/provider at run time. |
 
+### defer-task
+
+**Defer Task**
+
+Completes this task now with status `completed` and books a wake-up for you. Use when the result needs time: a build, a deploy, a reply. The task reaches its final state on this call; the lead sees your summary as its output unless the task has an outputSchema. For a task with an outputSchema, provide output as a JSON string matching that schema; it is stored verbatim as terminal output, while deferral details remain visible in the task log. A one-off schedule wakes you up later with a child task that carries this task as its parent. Optionally provide wakeOn to wake early when another task completes or fails; delayMs or runAt remains required as the ceiling. Provide delayMs or runAt, a summary of what you did, and a note that says what is pending and what to check.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `taskId` | `string` | Yes | - | The ID of the task you are working on. |
+| `delayMs` | `number` | No | - | Wake up after this many milliseconds (e.g. 1800000 for 30 min). |
+| `runAt` | `string` | No | - | Wake up at this ISO datetime (e.g. '2026-03-06T15:00:00Z'). Must be future. |
+| `wakeOn` | `object` | No | - | `{ event: "task.completed" \| "task.failed" \| "settled", taskId: string }`. Wake early on another task. |
+| `summary` | `string` | Yes | - | What you did so far and where things stand. Stored in the task log for tasks with an outputSchema; otherwise becomes the task's output. |
+| `output` | `string` | No | - | Required when the task has an outputSchema: a JSON string matching that schema, stored verbatim as terminal output. Ignored for tasks without an outputSchema. |
+| `note` | `string` | Yes | - | What is pending, and what to check on wake-up. |
+| `checks` | `array` | No | - | Concrete things to verify on wake-up, one per entry. |
+
+Use `wakeOn: { "event": "settled", "taskId": "<producer-task-id>" }` to wake on completion or failure. `task.completed` and `task.failed` match only that outcome. Exactly one of `delayMs` / `runAt` is required even with `wakeOn`; it is the fallback ceiling. The event and ceiling atomically claim the same wait and create one continuation child. Its context names the wake-up cause. Pending waits survive restarts and reconcile terminal producer state at startup and during scheduler polling. Already-terminal, missing, and self-watched tasks are rejected without completing the current task. Cancellation does not emit either supported event, so it falls back to the ceiling.
+
 ### update-schedule
 
 **Update Scheduled Task**
@@ -1007,7 +1032,7 @@ Search your accumulated memories using natural language. Returns summaries with 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | `string` | Yes | - | Natural language search query. |
-| `intent` | `string` | Yes | - | Why you are searching for this memory. Required. E.g. 'looking for auth pattern to fix login bug'. |
+| `intent` | `string` | No | - | Optional reason for searching for this memory. E.g. 'looking for auth pattern to fix login bug'. |
 | `scope` | `all \| agent \| swarm` | No | "all" | Search scope: 'all' (own + swarm), 'agent' (own only), 'swarm' (shared only). |
 | `limit` | `number` | No | 10 | Max results to return. |
 | `source` | `manual \| file_index \| session_summary \| task_completion` | No | - | Filter by memory source type. |
@@ -1021,9 +1046,9 @@ Store a learning as a searchable memory: a fix, a pattern, a gotcha, a fact abou
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `content` | `string` | Yes | - | The memory body. Markdown is fine. State the fact, the context it applies to, and the evidence. |
-| `name` | `string` | Yes | - | Short title, one line, used in search results and the UI. |
+| `name` | `string` | No | - | Short title used in search results and the UI. Defaults to the first non-empty content line (up to 200 characters). |
 | `scope` | `agent \| swarm` | No | "agent" | 'agent' (default): only you can recall it. 'swarm': every agent can recall it. |
-| `tags` | `array` | No | - | Free-form tags, for example a repo name or a topic. |
+| `tags` | `unknown` | No | - | Free-form tags as an array or a comma-separated string, for example a repo name or a topic. |
 | `taskId` | `uuid` | No | - | The task this learning came from, when there is one. |
 | `intent` | `string` | No | - | Why this is worth remembering. Kept in the audit trail. |
 
@@ -1035,14 +1060,15 @@ Retrieve the full content of a specific memory by its ID. Use memory-search to f
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `memoryId` | `uuid` | Yes | - | The ID of the memory to retrieve. |
-| `intent` | `string` | Yes | - | Why you are retrieving this memory. Required. E.g. 'need full details of the auth fix pattern'. |
+| `memoryId` | `uuid` | No | - | The ID of the memory to retrieve (or use id). |
+| `id` | `uuid` | No | - | Alias for memoryId, matching memory-search results. |
+| `intent` | `string` | No | - | Optional reason for retrieving this memory. E.g. 'need full details of the auth fix pattern'. |
 
 ### memory-edit
 
 **Edit a memory**
 
-Edit a single memory in place while preserving its ID, usefulness posterior, and audit history. Two modes: 'replace' overwrites the entire content (requires `content`); 'exact' performs a surgical find-and-replace of `oldString` with `newString` within the existing content (fails if `oldString` is missing or ambiguous). Use 'replace' for full rewrites, 'exact' for targeted edits.
+Edit a single memory in place while preserving its ID, usefulness posterior, and audit history. Two modes: 'replace' overwrites the entire content (requires `content`); 'exact' performs a surgical find-and-replace of `oldString` with `newString` within the existing content (fails if `oldString` is missing or ambiguous). Use 'replace' for full rewrites, 'exact' for targeted edits. Agents can edit their own memories; lead agents can edit any scope.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1074,9 +1100,10 @@ Rate a memory you used in the current task. Call this when a retrieved memory wa
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `id` | `string` | Yes | - | Memory ID returned by memory_search. |
+| `id` | `string` | No | - | Memory ID returned by memory-search (or use memoryId). |
+| `memoryId` | `string` | No | - | Alias for id, matching memory-get. |
 | `useful` | `boolean` | Yes | - | true = this memory helped solve the task; false = misled or wasted time. |
-| `note` | `string` | No | - | Short reason. Captured for telemetry; not surfaced to other agents. |
+| `note` | `string` | No | - | Reason, stored up to 500 characters for telemetry; not surfaced to other agents. |
 | `referencesSource` | `string` | No | - | Optional external source ID this memory references. Free-form string, convention "<source>:<identifier>" (e.g. "github:owner/repo#N", "linear:KEY-N", "customer:<slug>", "slack:<channel>:<ts>", "agentmail:<thread-id>"). Pick any prefix that fits — no closed enum. When present, an edge from this memory to the external source is created/updated. |
 
 ### inject-learning
@@ -1597,8 +1624,8 @@ Stores an HTML or JSON page in the swarm and returns shareable URLs. Calls are u
 | `key` | `unknown` | No | - | Logical namespace. Defaults to a shared/page:<id>/ resource key. |
 | `title` | `string` | Yes | - | Human-readable title shown in listings. |
 | `slug` | `string` | No | - | URL slug. Defaults to the kebab-cased title. Same slug → updates the existing row. |
-| `body` | `string` | Yes | - | Full page body (HTML document or JSON-render spec, per contentType). |
-| `contentType` | `text/html \| application/json` | Yes | - | 'text/html' renders directly at /p/:id; 'application/json' is rendered by the SPA. |
+| `body` | `string` | Yes | - | Full page body (HTML document, SVG image, or JSON-render spec, per contentType). |
+| `contentType` | `text/html \| application/json \| image/svg+xml` | Yes | - | 'text/html' and 'image/svg+xml' render directly at /p/:id; 'application/json' is rendered by the SPA. |
 | `authMode` | `public \| authed \| password` | No | "authed" | 'authed' — requires page-session cookie (default); 'public' — no gate and must be explicit; 'password' — requires key. |
 | `password` | `string` | No | - | Plaintext password, hashed before storage. Only meaningful for authMode='password'. |
 | `description` | `string` | No | - | Optional short description, used in listings + OG-tag unfurl. |
@@ -1701,6 +1728,52 @@ List KV entries in the resolved namespace (optionally filtered by key prefix). E
 | `offset` | `number` | No | - | - |
 | `namespace` | `unknown` | No | - | - |
 
+### room-get
+
+**Room Get**
+
+Read the current state of a realtime room.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | `string` | No | "default" | - |
+| `namespace` | `unknown` | No | - | - |
+| `schemaVersion` | `number` | No | 1 | - |
+
+### room-change
+
+**Room Change**
+
+Apply operations to the live state of a realtime room.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | `string` | No | "default" | - |
+| `namespace` | `unknown` | No | - | - |
+| `schemaVersion` | `number` | No | 1 | - |
+
+### room-reset
+
+**Room Reset**
+
+Replace a realtime room with a new state and schema version.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `name` | `string` | No | "default" | - |
+| `namespace` | `unknown` | No | - | - |
+| `schemaVersion` | `number` | No | 1 | - |
+
+### room-decode
+
+**Room Decode**
+
+Decode a room snapshot value that the caller already holds.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `value` | `unknown` | Yes | - | - |
+
 ## Slack Tools
 
 *Slack capability - Slack integration tools (no-op if Slack is not configured)*
@@ -1724,7 +1797,7 @@ Send a reply to a Slack thread. Use inboxMessageId for inbox messages, or taskId
 
 **Read Slack thread/channel history**
 
-Read messages from a Slack thread or channel. Use inboxMessageId or taskId to read from a thread you have context for, or provide channelId directly for channel history (leads only).
+Read messages from a Slack thread or channel. Use inboxMessageId or taskId to read from a thread you have context for, or provide channelId directly for channel history (leads only). From a task, files in the messages are stored as attachments of that task, each with a ready-to-run `fetchCommand`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1733,7 +1806,7 @@ Read messages from a Slack thread or channel. Use inboxMessageId or taskId to re
 | `channelId` | `string` | No | - | Slack channel ID to read from (requires lead privileges). |
 | `threadTs` | `string` | No | - | Thread timestamp (required with channelId for thread history). |
 | `limit` | `number` | No | 20 | Maximum number of messages to retrieve (default: 20, max: 100). |
-| `includeFiles` | `boolean` | No | true | Include file attachments in the response (default: true). |
+| `includeFiles` | `boolean` | No | true | Include file attachments in the response (default: true). From a task, they are also stored as attachments of that task. |
 
 ### slack-post
 
@@ -1824,13 +1897,14 @@ Upload a file (image, document, etc.) to a Slack channel or thread. Use inboxMes
 
 **Download file from Slack**
 
-Download a file from Slack by file ID or URL. Files are saved to the agent's download directory on the shared disk by default.
+Download a file from Slack by file ID or URL. From a task, the file is stored as an attachment of that task and the result carries a ready-to-run `fetchCommand` to get the bytes into your container. Without a task, the file is saved on the API server's disk, which your container usually can't read.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `fileId` | `string` | No | - | The Slack file ID to download (e.g., 'F0RDC39U1'). |
 | `url` | `string` | No | - | Direct URL to download (url_private_download from a file object). |
-| `savePath` | `string` | No | - | Where to save the file. Can be a directory or full path. Defaults to /workspace/shared/downloads/{agentId}/slack/ |
+| `taskId` | `uuid` | No | - | Task to attach the file to. Defaults to the task you are working on; must be a task you own or created. |
+| `savePath` | `string` | No | - | Only without a task: where to save the file on the API server (directory or full path). Defaults to /workspace/shared/downloads/{agentId}/slack/. |
 | `filename` | `string` | No | - | Filename to use when saving. Only used if savePath is a directory. |
 
 ### slack-delete

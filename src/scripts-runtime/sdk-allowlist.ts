@@ -12,6 +12,7 @@ export const SDK_TOOL_NAME_MAP = {
   task_list: "get-tasks",
   task_get: "get-task-details",
   task_storeProgress: "store-progress",
+  task_defer: "defer-task",
   task_poll: "poll-task",
   task_send: "send-task",
   task_cancel: "cancel-task", // destructive
@@ -26,6 +27,12 @@ export const SDK_TOOL_NAME_MAP = {
   kv_del: "kv-delete",
   kv_incr: "kv-incr",
   kv_list: "kv-list",
+
+  // ── realtime rooms ──
+  room_get: "room-get",
+  room_change: "room-change",
+  room_reset: "room-reset",
+  room_decode: "room-decode",
 
   // ── repos ──
   repo_list: "get-repos",

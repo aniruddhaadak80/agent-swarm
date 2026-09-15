@@ -21,15 +21,24 @@ Each row shows a source chip when the underlying environment variable is set on 
 
 ## Groups
 
+### Claude transport default
+
+The **Harness & tools** group includes `CLAUDE_TRANSPORT`, with `cli` as the default and `sdk` as the optional value.
+Agents can inherit this default or assign a transport beneath the harness selector on their details page.
+An agent override takes precedence over the global default. A repository override takes precedence when the session supplies its repository.
+Transport changes apply to future sessions and do not require a worker restart.
+The worker resolves this key for each session instead of retaining a scoped value in its deployment environment.
+SDK selection is incompatible with an effective Claude Bridge or legacy bridge binary.
+
 | Group | Examples |
 | --- | --- |
 | Steering | `STEERING_ENABLED`, `SLACK_THREAD_STEERING`, `SLACK_THREAD_STEERING_MODE` |
 | Memory | `MEMORY_HYBRID_SEARCH`, `MEMORY_GRAPH_EXPANSION`, `MEMORY_RATERS`, `EMBEDDING_MODEL` |
 | Heartbeat & crash recovery | `HEARTBEAT_INTERVAL_MS`, `HEARTBEAT_STALL_THRESHOLD_MIN`, `RUNTIME_STALE_THRESHOLD_MIN`, `HEARTBEAT_PIN_CRASH_RESUME` |
-| Harness & tools | `SCRIPTS_ONLY_MCP`, `MULTI_RUNTIME_ENABLED`, `CAPABILITIES`, `OPENROUTER_BASE_URL`, `WORKER_API_READY_TIMEOUT_SECONDS` |
+| Harness & tools | `SCRIPTS_ONLY_MCP`, `MULTI_RUNTIME_ENABLED`, `CAPABILITIES`, `OPENROUTER_BASE_URL`, `WORKER_API_READY_TIMEOUT_SECONDS`, `CONTEXT_PREAMBLE_MAX_TOKENS` |
 | Database | `DB_QUERY_BOUNDED_ENABLED`, `DB_QUERY_HTTP_BUDGET_MS`, `DB_QUERY_HTTP_MAX_ROWS`, `DB_QUERY_MCP_BUDGET_MS`, `DB_QUERY_MCP_MAX_ROWS`, `DB_QUERY_CONCURRENCY_CAP`, `SESSION_LOG_RETENTION_DAYS`, `AGENT_LOG_RETENTION_DAYS`, `EVENTS_RETENTION_DAYS`, `DB_RETENTION_DRY_RUN`, `DB_RETENTION_TICK_BUDGET_MS`, `DB_RETENTION_CATCHUP_INTERVAL_MS`, `DB_RETENTION_MAX_STATEMENT_MS` |
-| Integrations | `SLACK_DISABLE`, `SLACK_ALLOW_DEV_SOCKET_MODE`, `SLACK_RENDER_V2`, `GITHUB_DISABLE`, `LINEAR_DISABLE`, `SLACK_ALERTS_CHANNEL`, `AGENT_FS_REQUEST_TIMEOUT_MS`, `SLACK_REACTION_ACCEPTED`, `SLACK_REACTION_BUFFERED`, `SLACK_REACTION_NOW`, `SLACK_REACTION_STEERED`, `SLACK_REACTION_COMPLETED`, `SLACK_REACTION_FAILED` |
-| Security & access | `RBAC_ENABLED`, `BUDGET_ADMISSION_DISABLED`, `MCP_OAUTH_ALLOW_PRIVATE_HOSTS` |
+| Integrations | `SLACK_DISABLE`, `SLACK_ALLOW_DEV_SOCKET_MODE`, `SLACK_RENDER_V2`, `SLACK_RENDER_V2_DELEGATION`, `SLACK_CONCLUSION_SETTLE_SEC`, `SLACK_CONCLUSION_TIMEOUT_MIN`, `SLACK_TREE_STALL_MIN`, `GITHUB_DISABLE`, `LINEAR_DISABLE`, `SLACK_ALERTS_CHANNEL`, `AGENT_FS_REQUEST_TIMEOUT_MS`, `SLACK_REACTION_ACCEPTED`, `SLACK_REACTION_BUFFERED`, `SLACK_REACTION_NOW`, `SLACK_REACTION_STEERED`, `SLACK_REACTION_COMPLETED`, `SLACK_REACTION_FAILED` |
+| Security & access | `RBAC_ENABLED`, `BUDGET_ADMISSION_DISABLED`, `MCP_OAUTH_ALLOW_PRIVATE_HOSTS`, `CORS_ALLOWED_ORIGINS` (custom list replaces hosted/dev defaults; unset or blank uses defaults) |
 | Workflows & scheduler | `WORKFLOW_MAX_ITERATIONS`, `SCHEDULER_INTERVAL_MS` |
 | Telemetry & observability | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `ANONYMIZED_TELEMETRY` |
 | Branding & URLs | `SWARM_ORG_NAME`, `SWARM_BRAND_COLOR`, `DASHBOARD_URL` |
@@ -80,6 +89,12 @@ Every row shows its default, and rows with a stored value offer a **Reset** acti
   This check runs **before** the container can reach the API at all, so it can only ever read the value from its own process environment — a row saved here documents and validates the setting (and is what the **Restart required** badge refers to), but it cannot reach an already-waiting container. Set it as a real deployment environment variable on the worker/lead container, not just in the dashboard.
 </Callout>
 
+<Callout type="warn" title="CONTEXT_PREAMBLE_MAX_TOKENS is read once at process start">
+  Every follow-up task gets a bounded text summary of its parent/ancestor task chain prepended to its prompt, uniformly across all harness providers (not just those with native session resume). `CONTEXT_PREAMBLE_MAX_TOKENS` (default `2000`, ~4 chars/token, so ~8,000 chars) caps that summary's size. It exists to prevent the SIGTERM-143 context-saturation failure mode seen with unbounded session resumes — raising it too far risks reintroducing that failure, so keep it well below the target model's context window.
+
+  The API server reads this value into a module-level constant at boot, so a saved value takes effect on the next restart (the **Restart required** badge on this row).
+</Callout>
+
 ## Access control
 
 Reading configuration requires dashboard access (API key). Writes go through the config API's RBAC gate (`config.write.any`): operator and user tokens can save, and agent principals are restricted to lead agents.
@@ -87,3 +102,5 @@ Reading configuration requires dashboard access (API key). Writes go through the
 ## Adding a new setting
 
 If you are contributing a new operator-facing environment variable to Agent Swarm, register it in the configuration catalog at `apps/ui/src/lib/configuration-catalog.ts` (group, value kind, default, description, and docs link) so it appears on this page. Reserved bootstrap keys (`API_KEY`, `SECRETS_ENCRYPTION_KEY`) and credentials must never be added to the catalog.
+
+`CORS_ALLOW_ANY_ORIGIN` is deployment-only and is not available in Configuration. Set it in the API deployment environment and restart the API for arbitrary-origin bearer-token clients using `credentials: "omit"`. It never grants credentialed CORS to an unlisted origin: cookie-authenticated responses, including page JSON and `/@swarm/api/*`, still require `CORS_ALLOWED_ORIGINS` (or the built-in defaults). HTTP, MCP, and database config writes reject this reserved key; legacy stored rows are ignored during startup and reload and can be deleted. Prefer configuring trusted origins with `CORS_ALLOWED_ORIGINS`.

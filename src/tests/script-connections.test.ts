@@ -562,6 +562,14 @@ describe("script connections", () => {
       markMigrationApplied(database, "142_workflow_automation_preflight.sql");
       // 143 backfills pricing, which this migration-112-only fixture does not create.
       markMigrationApplied(database, "143_backfill_gpt_6_astra_pricing.sql");
+      // 147 alters scheduled_tasks, which this migration-112-only fixture does not create.
+      markMigrationApplied(database, "147_scheduled_tasks_parent_task.sql");
+      // 148 rebuilds pages, which this migration-112-only fixture does not create.
+      markMigrationApplied(database, "148_pages_svg.sql");
+      // 151 repairs scheduled_tasks, which this migration-112-only fixture does not create.
+      markMigrationApplied(database, "151_repair_scheduled_task_required_params.sql");
+      // 152 indexes task routing context absent from this migration-112-only fixture.
+      markMigrationApplied(database, "152_routing_decisions.sql");
 
       const id = crypto.randomUUID();
       const now = new Date().toISOString();

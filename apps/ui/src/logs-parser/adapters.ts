@@ -111,6 +111,7 @@ export function normalizeAnthropic(ordered: DecodedRecord[]): NormalizedItem[] {
 
 export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
   const items: NormalizedItem[] = [];
+  const toolCalls = new Map<string, NormalizedItem>();
 
   for (const d of ordered) {
     const ev = d.event;
@@ -137,6 +138,25 @@ export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
     }
 
     switch (ev.type) {
+      case "acp_log_truncated": {
+        // Session initialization can contain an enormous model catalog. Keep
+        // its diagnostic row, but render only the compact lifecycle marker.
+        if (ev.originalType !== "session_init") {
+          items.push(makeItem(d, "unknown", { role: "system", raw: ev }));
+          break;
+        }
+        items.push(
+          makeItem(d, "lifecycle", {
+            role: "system",
+            meta: {
+              type: "session_init",
+              sessionId: ev.sessionId,
+              truncated: true,
+            },
+          }),
+        );
+        break;
+      }
       case "message": {
         const role = ev.role === "user" ? "user" : "assistant";
         appendAcpChunk(
@@ -150,26 +170,34 @@ export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
         break;
       }
       case "tool_start": {
-        items.push(
-          makeItem(d, "tool_call", {
-            role: "assistant",
-            tool: {
-              id: String(ev.toolCallId ?? ""),
-              name: String(ev.toolName ?? "tool"),
-              input: ev.args,
-            },
-          }),
-        );
+        const call = makeItem(d, "tool_call", {
+          role: "assistant",
+          tool: {
+            id: String(ev.toolCallId ?? ""),
+            name: String(ev.toolName ?? "tool"),
+            input: ev.args,
+          },
+        });
+        toolCalls.set(String(ev.toolCallId ?? ""), call);
+        items.push(call);
         break;
       }
       case "tool_end": {
         const result = isRecord(ev.result) ? ev.result : undefined;
+        const call = toolCalls.get(String(ev.toolCallId ?? ""));
+        if (call) {
+          call.meta = {
+            ...(isRecord(call.meta) ? call.meta : {}),
+            ...result,
+            title: ev.toolName,
+          };
+        }
         items.push(
           makeItem(d, "tool_result", {
             role: "user",
             result: {
               id: String(ev.toolCallId ?? ""),
-              payload: ev.result,
+              payload: acpToolPayload(result) ?? ev.result,
               isError: result?.status === "failed",
             },
           }),
@@ -192,7 +220,24 @@ export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
             text,
             typeof data?.messageId === "string" ? data.messageId : undefined,
           );
-        } else {
+        } else if (ev.name === "acp_tool_call_update" && data) {
+          const call = toolCalls.get(String(data.toolCallId ?? ""));
+          if (call?.tool) {
+            // ACP starts with partial input; updates are snapshots, not deltas.
+            // Keep the original tool name: later titles describe the output.
+            if (data.rawInput !== undefined) {
+              call.tool.input =
+                isRecord(call.tool.input) && isRecord(data.rawInput)
+                  ? { ...call.tool.input, ...data.rawInput }
+                  : data.rawInput;
+            }
+            call.meta = { ...(isRecord(call.meta) ? call.meta : {}), ...data };
+            call.coveredRecIds = [...(call.coveredRecIds ?? []), d.rec.id];
+          } else {
+            // Preserve unmatched updates when viewing a partial log window.
+            items.push(makeItem(d, "lifecycle", { role: "system", meta: ev }));
+          }
+        } else if (ev.name !== "acp_available_commands_update") {
           items.push(makeItem(d, "lifecycle", { role: "system", meta: ev }));
         }
         break;
@@ -210,8 +255,17 @@ export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
         );
         break;
       }
+      case "progress": {
+        // Only suppress the provider's generated duplicate for a known call.
+        const match = /^ACP tool (\S+) (?:pending|in_progress|completed|failed)$/.exec(
+          String(ev.message ?? ""),
+        );
+        if (!match?.[1] || !toolCalls.has(match[1])) {
+          items.push(makeItem(d, "lifecycle", { role: "system", meta: ev }));
+        }
+        break;
+      }
       case "session_init":
-      case "progress":
       case "context_usage": {
         items.push(makeItem(d, "lifecycle", { role: "system", meta: ev }));
         break;
@@ -224,6 +278,19 @@ export function normalizeAcp(ordered: DecodedRecord[]): NormalizedItem[] {
   }
 
   return items;
+}
+
+function acpToolPayload(result: Record<string, unknown> | undefined): unknown {
+  if (Array.isArray(result?.content) && result.content.length > 0) {
+    // ACP wraps ContentBlocks in ToolCallContent; unwrap before the shared
+    // result renderer so plain tool output does not become protocol JSON.
+    return {
+      content: result.content.map((part) =>
+        isRecord(part) && part.type === "content" ? part.content : part,
+      ),
+    };
+  }
+  return result?.rawOutput;
 }
 
 function appendAcpChunk(
@@ -250,6 +317,7 @@ export function normalizeCodex(ordered: DecodedRecord[]): NormalizedItem[] {
   const items: NormalizedItem[] = [];
   const toolCallById = new Map<string, NormalizedItem>();
   const textByItemId = new Map<string, NormalizedItem>();
+  const unknownById = new Map<string, NormalizedItem>();
   const completedTextKeys = new Set<string>();
 
   for (const d of ordered) {
@@ -295,7 +363,7 @@ export function normalizeCodex(ordered: DecodedRecord[]): NormalizedItem[] {
             if (userMessage) {
               upsertCodexText(items, textByItemId, d, item, "user", userMessage, "replace");
             } else {
-              items.push(makeItem(d, "unknown", { role: "system", raw: ev }));
+              upsertCodexUnknown(items, unknownById, d, ev, item, "running");
             }
           }
         }
@@ -307,7 +375,7 @@ export function normalizeCodex(ordered: DecodedRecord[]): NormalizedItem[] {
           // existing call in place so the transcript shows one current list.
           upsertCodexToolCall(items, toolCallById, d, item);
         } else {
-          items.push(makeItem(d, "unknown", { role: "system", raw: ev }));
+          upsertCodexUnknown(items, unknownById, d, ev, item, "running");
         }
         break;
       }
@@ -414,7 +482,11 @@ export function normalizeCodex(ordered: DecodedRecord[]): NormalizedItem[] {
             if (userMessage) {
               upsertCodexText(items, textByItemId, d, item, "user", userMessage, "replace");
             } else {
-              items.push(makeItem(d, "unknown", { role: "system", raw: ev }));
+              const failed =
+                (typeof item.exit_code === "number" && item.exit_code !== 0) ||
+                item.status === "failed" ||
+                item.error != null;
+              upsertCodexUnknown(items, unknownById, d, ev, item, failed ? "failed" : "completed");
             }
             break;
           }
@@ -879,6 +951,30 @@ function upsertCodexToolCall(
   });
   items.push(normalized);
   if (id) toolCallById.set(id, normalized);
+}
+
+function upsertCodexUnknown(
+  items: NormalizedItem[],
+  unknownById: Map<string, NormalizedItem>,
+  d: DecodedRecord,
+  ev: Record<string, unknown>,
+  item: Record<string, unknown> | undefined,
+  status: "running" | "completed" | "failed",
+): void {
+  const id = item ? asString(item.id) : undefined;
+  const key = id ? codexTextKey(d, id) : undefined;
+  const existing = key ? unknownById.get(key) : undefined;
+  if (existing) {
+    existing.raw = ev;
+    existing.status = status;
+    if (status !== "running") existing.durationMs = Math.max(0, d.t - existing.t);
+    existing.coveredRecIds = [...new Set([...(existing.coveredRecIds ?? []), d.rec.id])];
+    return;
+  }
+
+  const normalized = makeItem(d, "unknown", { role: "system", raw: ev, status });
+  items.push(normalized);
+  if (key) unknownById.set(key, normalized);
 }
 
 function emitStderr(

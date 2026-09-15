@@ -32,6 +32,8 @@ export type HarnessAttempt = {
 };
 export type HarnessResult = {
   provider: string;
+  /** Selected Claude transport. Absent in older results and for other providers. */
+  transport?: "cli" | "sdk";
   model: string;
   /** Status of the final attempt. */
   status: "pass" | "fail";
@@ -65,6 +67,7 @@ export type Options = {
   harnessAttempts: number;
   only?: Set<string>;
   skip: Set<string>;
+  group?: string;
   list: boolean;
   help: boolean;
   jsonPath: string;
@@ -85,6 +88,7 @@ Options:
                                 (1 through 5, default: 1)
   --only name,name              Run only named contract scenarios
   --skip name,name              Skip named contract scenarios
+  --group name                  Run only contract scenarios tagged with this group
   --list                        Print contract scenario names and exit
   --json path                   JSON result path (default: ./e2e-results.json)
   --summary-md path             Optional Markdown summary path
@@ -130,7 +134,11 @@ function sutEnvValue(value: string): [string, string] {
   return [value.slice(0, separator), value.slice(separator + 1)];
 }
 
-export function parseOptions(args: string[], scenarioNames: string[]): Options {
+export function parseOptions(
+  args: string[],
+  scenarioNames: string[],
+  groupNames: string[] = [],
+): Options {
   const options: Options = {
     harness: [],
     harnessAttempts: 1,
@@ -150,6 +158,7 @@ export function parseOptions(args: string[], scenarioNames: string[]): Options {
     else if (arg === "--harness-attempts") options.harnessAttempts = attemptsValue(value());
     else if (arg === "--only") options.only = new Set(listValue(value()));
     else if (arg === "--skip") options.skip = new Set(listValue(value()));
+    else if (arg === "--group") options.group = value();
     else if (arg === "--json") options.jsonPath = value();
     else if (arg === "--summary-md") options.summaryPath = value();
     else if (arg === "--sut-env") {
@@ -167,6 +176,9 @@ export function parseOptions(args: string[], scenarioNames: string[]): Options {
   const names = new Set(scenarioNames);
   for (const name of [...(options.only ?? []), ...options.skip]) {
     if (!names.has(name)) throw new Error(`Unknown scenario: ${name}`);
+  }
+  if (options.group && !new Set(groupNames).has(options.group)) {
+    throw new Error(`Unknown scenario group: ${options.group}`);
   }
   for (const provider of options.harness) {
     if (!["claude", "codex", "pi", "opencode"].includes(provider)) {
@@ -202,13 +214,18 @@ export function costCell(cost: HarnessCost | undefined): string {
   return `${usd(cost.totalUsd)} (${cost.costSource})`;
 }
 
+/** Preserve the historical CLI label while keeping SDK results distinct. */
+export function harnessLegName(leg: HarnessResult): string {
+  return leg.provider === "claude" && leg.transport === "sdk" ? "claude-sdk" : leg.provider;
+}
+
 export function printHarness(result: HarnessResult): void {
   const color = colors[result.status];
   const detail = result.error ? `: ${result.error}` : "";
   const attempts = result.attempts.length > 1 ? `, ${result.attempts.length} attempts` : "";
   const cost = result.cost ? `, ${costCell(result.cost)}` : "";
   console.log(
-    `${color}${result.status.toUpperCase()}${colors.reset} harness ${result.provider} ` +
+    `${color}${result.status.toUpperCase()}${colors.reset} harness ${harnessLegName(result)} ` +
       `(${result.model}, ${seconds(result.durationMs)}${attempts}${cost})${detail}`,
   );
 }
@@ -226,7 +243,7 @@ export function harnessTable(legs: HarnessResult[]): string[] {
       const tokens = leg.cost?.records
         ? `${leg.cost.inputTokens + leg.cost.cacheReadTokens + leg.cost.cacheWriteTokens} / ${leg.cost.outputTokens}`
         : "";
-      return `| ${leg.provider} | ${markdownCell(leg.model)} | ${leg.status.toUpperCase()} | ${leg.attempts.length} | ${seconds(leg.durationMs)} | ${costCell(leg.cost)} | ${tokens} | ${markdownCell(leg.error ?? "")} |`;
+      return `| ${harnessLegName(leg)} | ${markdownCell(leg.model)} | ${leg.status.toUpperCase()} | ${leg.attempts.length} | ${seconds(leg.durationMs)} | ${costCell(leg.cost)} | ${tokens} | ${markdownCell(leg.error ?? "")} |`;
     }),
   ];
 }
@@ -239,7 +256,7 @@ export function harnessFailureDetails(legs: HarnessResult[]): string[] {
       if (attempt.status !== "fail") return;
       lines.push(
         "<details>",
-        `<summary>${leg.provider} attempt ${index + 1}: ${markdownCell(attempt.error ?? "failed")}${attempt.failureKind ? ` (${attempt.failureKind})` : ""}</summary>`,
+        `<summary>${harnessLegName(leg)} attempt ${index + 1}: ${markdownCell(attempt.error ?? "failed")}${attempt.failureKind ? ` (${attempt.failureKind})` : ""}</summary>`,
         "",
         "```text",
         attempt.logTail?.replaceAll("```", "` ` `") ?? "(no worker log)",

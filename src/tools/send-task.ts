@@ -11,6 +11,7 @@ import {
   getAgentById,
   getDbClient,
   getTaskById,
+  getUserById,
   hasCapacity,
 } from "@/be/db";
 import { repointTrackerSyncBySwarmId } from "@/be/db-queries/tracker";
@@ -30,9 +31,28 @@ import {
   FollowUpConfigSchema,
   ModelTierSchema,
   ReasoningEffortSchema,
+  RoutingReasonSchema,
   splitLegacyModelAlias,
 } from "@/types";
+import { findJsonSchemaShapeErrors } from "@/workflows/json-schema-validator";
 import { looseAgentTaskOutputSchema } from "./get-task-details";
+
+/**
+ * Shared by `sendTaskInputSchema` (owner MCP) and `userSendTaskInputSchema`
+ * (`/mcp-user`, see src/server-user.ts) so a malformed nested `outputSchema`
+ * (e.g. `{ properties: { answer: null } }`) is rejected at ingress on both
+ * surfaces instead of reaching `store-progress` completion validation, where
+ * the hand-rolled validator would throw reading `null.type`.
+ */
+export function checkOutputSchemaShape(
+  outputSchema: Record<string, unknown> | undefined,
+  ctx: z.RefinementCtx,
+): void {
+  if (outputSchema === undefined) return;
+  for (const message of findJsonSchemaShapeErrors(outputSchema)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: ["outputSchema"] });
+  }
+}
 
 export const sendTaskInputSchema = z
   .object({
@@ -42,6 +62,14 @@ export const sendTaskInputSchema = z
       .string()
       .optional()
       .describe("The agent to assign/offer task to. Omit to create unassigned task for pool."),
+    routingReason: RoutingReasonSchema.optional().describe(
+      "Why this agent was selected. Required when agentId is supplied; omit for pool routing.",
+    ),
+    routingNote: z
+      .string()
+      .max(200)
+      .optional()
+      .describe("Optional routing context (maximum 200 characters)."),
     task: z.string().min(1).describe("The task description to send."),
     key: AssetKeySchema.optional().describe(
       "Logical namespace key. Child tasks inherit their parent namespace when provided.",
@@ -130,14 +158,20 @@ export const sendTaskInputSchema = z
       ),
     requestedByUserId: z
       .string()
-      .uuid()
+      .regex(/^[a-f0-9]{32}$/, "Expected a registry user ID (32 lowercase hexadecimal characters).")
       .optional()
       .describe(
-        "ID of the human user who originally requested this task chain. When omitted, inherited from the caller's current task so the attribution flows through multi-hop delegation automatically.",
+        "Registered requester ID (32 lowercase hexadecimal characters). When omitted, inherited from the caller's current task so the attribution flows through multi-hop delegation automatically.",
       ),
     followUpConfig: FollowUpConfigSchema.optional().describe(
       "Control the lead follow-up created when this task finishes. When to use `followUpConfig`: set `disabled: true` when you'll wait for this task to complete inline and no follow-up is needed; set `onCompleted` / `onFailed` with specific instructions when you need to follow up effectively on a particular outcome of a long-running flow; for normal one-shot tasks, leave it unset because defaults are fine. It is most valuable for long-running / complex flows.",
     ),
+    outputSchema: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Optional JSON Schema the assignee's final output must satisfy. store-progress rejects a completion that does not match. Supported keywords: type, required, properties, enum, const, items.",
+      ),
   })
   .superRefine((data, ctx) => {
     const hasChannel = !!data.slackChannelId;
@@ -149,6 +183,14 @@ export const sendTaskInputSchema = z
         path: [hasChannel ? "slackThreadTs" : "slackChannelId"],
       });
     }
+    if (data.agentId !== undefined && data.routingReason === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "routingReason is required when agentId is supplied.",
+        path: ["routingReason"],
+      });
+    }
+    checkOutputSchemaShape(data.outputSchema, ctx);
   });
 
 export const sendTaskOutputSchema = swarmToolOutputSchema({
@@ -196,6 +238,8 @@ export async function sendTaskHandler(
   ctx: ToolCtx,
   {
     agentId,
+    routingReason,
+    routingNote,
     task,
     key,
     offerMode,
@@ -218,8 +262,13 @@ export async function sendTaskHandler(
     overrideSlackContext,
     requestedByUserId: inputRequestedByUserId,
     followUpConfig,
+    outputSchema,
   }: SendTaskArgs,
 ): Promise<SwarmToolResult> {
+  // Defense in depth for direct TypeScript callers that bypass MCP schema parsing.
+  if (agentId !== undefined && routingReason === undefined) {
+    return toolErr("routingReason is required when agentId is supplied.");
+  }
   if (ctx.kind === "owner" && !ctx.agentId) {
     return toolErr('Agent ID not found. The MCP client should define the "X-Agent-ID" header.', {
       data: { yourAgentId: ctx.agentId },
@@ -230,6 +279,12 @@ export async function sendTaskHandler(
   const sourceTaskId = ctx.kind === "owner" ? ctx.sourceTaskId : undefined;
   const requestedByUserId =
     ctx.kind === "user" ? ctx.userId : (inputRequestedByUserId ?? undefined);
+
+  if (ctx.kind === "owner" && requestedByUserId && !(await getUserById(requestedByUserId))) {
+    return toolErr("requestedByUserId must identify an existing registered user.", {
+      data: { yourAgentId: creatorAgentId },
+    });
+  }
 
   if (ctx.kind === "owner" && agentId === ctx.agentId) {
     return toolErr("Cannot send a task to yourself, are you drunk?", {
@@ -306,6 +361,9 @@ export async function sendTaskHandler(
       effectiveAgentId = effectiveParentTask.agentId;
     }
   }
+  const effectiveRoutingReason =
+    agentId !== undefined ? routingReason : effectiveAgentId ? "continuity" : undefined;
+  const effectiveRoutingNote = effectiveRoutingReason ? routingNote : undefined;
 
   // The three dedup guards are pure reads, so they run twice: once here as a
   // fast path (keeping this tool's existing early-exit responses), and once
@@ -436,6 +494,9 @@ export async function sendTaskHandler(
         slackUserId,
         overrideSlackContext,
         followUpConfig,
+        outputSchema,
+        routingReason: effectiveRoutingReason,
+        routingNote: effectiveRoutingNote,
         routingAffinity:
           effectiveLeadOnly || requiredCapabilities?.length
             ? { leadOnly: effectiveLeadOnly, capabilities: requiredCapabilities ?? [] }
@@ -502,6 +563,9 @@ export async function sendTaskHandler(
         slackUserId,
         overrideSlackContext,
         followUpConfig,
+        outputSchema,
+        routingReason: effectiveRoutingReason,
+        routingNote: effectiveRoutingNote,
         routingAffinity:
           effectiveLeadOnly || requiredCapabilities?.length
             ? { leadOnly: effectiveLeadOnly, capabilities: requiredCapabilities ?? [] }
@@ -542,6 +606,9 @@ export async function sendTaskHandler(
       slackUserId,
       overrideSlackContext,
       followUpConfig,
+      outputSchema,
+      routingReason: effectiveRoutingReason,
+      routingNote: effectiveRoutingNote,
       routingAffinity:
         effectiveLeadOnly || requiredCapabilities?.length
           ? { leadOnly: effectiveLeadOnly, capabilities: requiredCapabilities ?? [] }

@@ -283,6 +283,16 @@ export const CONFIGURATION_GROUPS: ConfigCatalogGroup[] = [
     icon: Cpu,
     entries: [
       {
+        key: "CLAUDE_TRANSPORT",
+        label: "Default Claude transport",
+        description:
+          "Choose the default Claude execution transport. Agent runtime settings can override it. Existing agents inherit CLI unless you change this value.",
+        kind: "enum",
+        options: ["cli", "sdk"],
+        defaultValue: "cli",
+        docsUrl: `${DOCS}guides/harness-providers`,
+      },
+      {
         key: "SCRIPTS_ONLY_MCP",
         label: "Scripts-only MCP",
         description:
@@ -326,6 +336,17 @@ export const CONFIGURATION_GROUPS: ConfigCatalogGroup[] = [
         kind: "number",
         defaultValue: "90",
         placeholder: "90",
+        restartRequired: true,
+        docsUrl: `${DOCS}ui/configuration`,
+      },
+      {
+        key: "CONTEXT_PREAMBLE_MAX_TOKENS",
+        label: "Context preamble cap (tokens)",
+        description:
+          "Token budget for the follow-up context preamble prepended to a child task's prompt, at ~4 chars/token. Bounds how much parent/ancestor task context (and prior tool-call summary) a follow-up task sees, uniformly across every harness provider. Raising it lets a follow-up carry more prior context at the cost of a larger prompt; keep it well below the target model's context window to avoid the SIGTERM-143 context-saturation failure mode. Read once at process start.",
+        kind: "number",
+        defaultValue: "2000",
+        placeholder: "2000",
         restartRequired: true,
         docsUrl: `${DOCS}ui/configuration`,
       },
@@ -492,6 +513,45 @@ export const CONFIGURATION_GROUPS: ConfigCatalogGroup[] = [
         kind: "boolean",
         defaultValue: "false",
         docsUrl: `${DOCS}integrations/slack`,
+      },
+      {
+        key: "SLACK_RENDER_V2_DELEGATION",
+        label: "Slack delegated-result delivery",
+        description:
+          "Master switch for deferred ask conclusion, child result cards, and the closure-based reaction gate. Requires SLACK_RENDER_V2. Off reverts to the legacy per-ask outcome card on the next tick.",
+        kind: "boolean",
+        defaultValue: "false",
+        docsUrl: `${DOCS}guides/slack-integration`,
+      },
+      {
+        key: "SLACK_CONCLUSION_SETTLE_SEC",
+        label: "Conclusion settle window (sec)",
+        description:
+          "Quiet seconds after every member of an ask's closure goes terminal before the conclusion card posts. Absorbs the gap between a child's terminal write and its follow-up task.",
+        kind: "number",
+        defaultValue: "10",
+        placeholder: "10",
+        docsUrl: `${DOCS}guides/slack-integration`,
+      },
+      {
+        key: "SLACK_CONCLUSION_TIMEOUT_MIN",
+        label: "Conclusion timeout (min)",
+        description:
+          "Idle minutes before an ask's closure concludes with unfinished work, posting a timeout card and a warning reaction. Last-resort backstop behind heartbeat stall remediation.",
+        kind: "number",
+        defaultValue: "240",
+        placeholder: "240",
+        docsUrl: `${DOCS}guides/slack-integration`,
+      },
+      {
+        key: "SLACK_TREE_STALL_MIN",
+        label: "Tree stall threshold (min)",
+        description:
+          "Minutes without a task update before the thread tree shows a stalled glyph for that task.",
+        kind: "number",
+        defaultValue: "15",
+        placeholder: "15",
+        docsUrl: `${DOCS}guides/slack-integration`,
       },
       {
         key: "SLACK_REACTION_ACCEPTED",
@@ -695,6 +755,18 @@ export const CONFIGURATION_GROUPS: ConfigCatalogGroup[] = [
           "Skip budget admission control so tasks are admitted even when their budget is exhausted.",
         kind: "boolean",
         defaultValue: "false",
+      },
+      {
+        key: "CORS_ALLOWED_ORIGINS",
+        label: "Credentialed CORS allowlist",
+        description:
+          "Comma-separated exact origins or wildcard patterns such as https://*.agent-swarm.dev. Wildcards match one or more subdomain labels, never the apex; hosts ignore case, schemes and ports must match exactly. Bare * and https://* are ignored. Unset or blank uses the hosted/dev defaults shown below. Custom values replace defaults. The deployment-only CORS_ALLOW_ANY_ORIGIN environment variable overrides this list when enabled.",
+        kind: "string",
+        defaultValue:
+          "https://*.agent-swarm.dev,https://*.agent-swarm.cloud,http://localhost:5274,http://127.0.0.1:5274,http://[::1]:5274,https://ui.swarm.localhost:1355",
+        placeholder: "https://app.example.com,https://dashboard.example.com",
+        docsUrl:
+          "https://github.com/desplega-ai/agent-swarm/blob/main/DEPLOYMENT.md#built-in-api-cors",
       },
     ],
   },

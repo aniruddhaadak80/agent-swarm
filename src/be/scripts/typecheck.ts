@@ -35,6 +35,36 @@ export type ScriptScope = "agent" | "global";
 export type ScriptFsMode = "none" | "workspace-rw";
 export type ScriptApiRawOptions = { raw: true };
 export type ScriptApiDefaultOptions = { raw?: false };
+export type RoutingReason = "skill" | "continuity" | "overflow" | "human_pinned" | "reroute_fault";
+export type TaskSendArgs = Record<string, unknown> & {
+  task: string;
+  routingNote?: string;
+} & (
+  | { agentId: string; routingReason: RoutingReason }
+  | { agentId?: never; routingReason?: never }
+);
+export type AgentTaskStepConfig = {
+  template?: string;
+  task?: string;
+  agentId?: string;
+  routingReason?: RoutingReason;
+  routingNote?: string;
+  tags?: string[];
+  priority?: number;
+  offerMode?: boolean;
+  dir?: string;
+  vcsRepo?: string;
+  model?: string;
+  parentTaskId?: string;
+  requestedByUserId?: string;
+  outputSchema?: Record<string, unknown>;
+  /** Wait for the dispatched task to reach a terminal status before resolving. Default: true. */
+  waitForCompletion?: boolean;
+  /** Max ms to wait for a terminal status before throwing. Default: 2h. Only used when waitForCompletion is true. */
+  timeoutMs?: number;
+  /** Throw when the task ends failed/cancelled/superseded (default), or resolve with {taskId,status,error} when false. */
+  failOnTaskFailure?: boolean;
+};
 
 export interface ScriptApiRawResult {
   ok: boolean;
@@ -105,6 +135,30 @@ export interface KvListData<T = unknown> {
   namespace: string;
 }
 
+export type RoomOperation =
+  | { type: "set"; path: Array<string | number>; value: JsonValue }
+  | { type: "delete"; path: Array<string | number> }
+  | { type: "insert"; path: Array<string | number>; index: number; values: JsonValue[] }
+  | { type: "increment"; path: Array<string | number>; by: number }
+  | { type: "text"; path: Array<string | number>; index: number; deleteCount?: number; insert?: string };
+
+export interface RoomView {
+  namespace: string;
+  name: string;
+  schemaVersion: number;
+  generation: string;
+  stale: boolean;
+  state: unknown;
+  snapshot: string;
+  bytes: number;
+}
+
+export interface RoomDecoded {
+  schemaVersion: number;
+  generation: string;
+  state: unknown;
+}
+
 export interface SwarmSdk {
   // --- memory ---
   memory_search(args: { query: string; intent: string; scope?: "all" | "agent" | "swarm"; limit?: number; source?: string }): Promise<unknown>;
@@ -114,6 +168,7 @@ export interface SwarmSdk {
   task_list(args?: Record<string, unknown>): Promise<unknown>;
   task_get(args: { taskId: string }): Promise<unknown>;
   task_storeProgress(args: Record<string, unknown>): Promise<unknown>;
+  task_defer(args: { taskId: string; delayMs?: number; runAt?: string; wakeOn?: { event: "task.completed" | "task.failed" | "settled"; taskId: string }; summary: string; note: string; checks?: string[] }): Promise<unknown>;
   task_poll(args?: Record<string, unknown>): Promise<unknown>;
   // --- kv ---
   kv_get<T = unknown>(args: { key: string; namespace?: string }): Promise<KvSdkResponse<KvEntry<T>>>;
@@ -125,6 +180,17 @@ export interface SwarmSdk {
   kv_del(args: { key: string; namespace?: string }): Promise<KvSdkResponse<KvEmptyData, 204>>;
   kv_incr(args: { key: string; by?: number; namespace?: string }): Promise<KvSdkResponse<KvEntry<number>>>;
   kv_list<T = unknown>(args?: { prefix?: string; namespace?: string; limit?: number; offset?: number }): Promise<KvSdkResponse<KvListData<T>>>;
+  // --- realtime rooms ---
+  room: {
+    get(args?: { name?: string; namespace?: string; schemaVersion?: number }): Promise<RoomView>;
+    change(args: { name?: string; namespace?: string; schemaVersion?: number; operations: RoomOperation[] }): Promise<RoomView>;
+    reset(args?: { name?: string; namespace?: string; schemaVersion?: number; state?: Record<string, JsonValue> }): Promise<RoomView>;
+    decode(args: { value: unknown }): Promise<RoomDecoded>;
+  };
+  room_get(args?: { name?: string; namespace?: string; schemaVersion?: number }): Promise<unknown>;
+  room_change(args: { name?: string; namespace?: string; schemaVersion?: number; operations: RoomOperation[] }): Promise<unknown>;
+  room_reset(args?: { name?: string; namespace?: string; schemaVersion?: number; state?: unknown }): Promise<unknown>;
+  room_decode(args: { value: unknown }): Promise<unknown>;
   // --- repos ---
   repo_list(args?: Record<string, unknown>): Promise<unknown>;
   // --- schedules ---
@@ -183,7 +249,7 @@ export interface SwarmSdk {
   inject_learning(args: { content: string; name?: string; scope?: "agent" | "swarm"; source?: string; tags?: string[] }): Promise<unknown>;
 
   // --- write: tasks ---
-  task_send(args: Record<string, unknown>): Promise<unknown>;
+  task_send(args: TaskSendArgs): Promise<unknown>;
   task_cancel(args: { taskId: string }): Promise<unknown>;
   task_steer(args: { taskId: string; message: string; mode?: "steer" | "queue"; onUnsupported?: "degrade" | "fail" }): Promise<unknown>;
   task_action(args: Record<string, unknown>): Promise<unknown>;
@@ -338,26 +404,7 @@ export interface ScriptWorkflowSteps {
   ): Promise<unknown>;
   agentTask(
     label: string,
-    config: {
-      template?: string;
-      task?: string;
-      agentId?: string;
-      tags?: string[];
-      priority?: number;
-      offerMode?: boolean;
-      dir?: string;
-      vcsRepo?: string;
-      model?: string;
-      parentTaskId?: string;
-      requestedByUserId?: string;
-      outputSchema?: Record<string, unknown>;
-      /** Wait for the dispatched task to reach a terminal status before resolving. Default: true. */
-      waitForCompletion?: boolean;
-      /** Max ms to wait for a terminal status before throwing. Default: 2h. Only used when waitForCompletion is true. */
-      timeoutMs?: number;
-      /** Throw when the task ends failed/cancelled/superseded (default), or resolve with {taskId,status,error} when false. */
-      failOnTaskFailure?: boolean;
-    },
+    config: AgentTaskStepConfig,
   ): Promise<unknown>;
   swarmScript(
     label: string,

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agent Swarm API",
-    "version": "1.143.0",
+    "version": "1.148.0",
     "description": "Multi-agent orchestration API for Claude Code, Codex, and Gemini CLI. Enables task distribution, agent communication, and service discovery.\n\nMCP tools are documented separately in [MCP.md](./MCP.md)."
   },
   "servers": [
@@ -173,6 +173,20 @@
               "jira"
             ],
             "default": "mcp"
+          },
+          "routingReason": {
+            "type": "string",
+            "enum": [
+              "skill",
+              "continuity",
+              "overflow",
+              "human_pinned",
+              "reroute_fault"
+            ]
+          },
+          "routingNote": {
+            "type": "string",
+            "maxLength": 200
           },
           "taskType": {
             "type": "string",
@@ -1463,6 +1477,7 @@
               "system.error",
               "system.profile_sync_rejected",
               "system.profile_sync_reconciled",
+              "system.profile_sync_conflict",
               "script.global_upsert",
               "schedule.deleted"
             ]
@@ -2290,7 +2305,8 @@
             "type": "string",
             "enum": [
               "text/html",
-              "application/json"
+              "application/json",
+              "image/svg+xml"
             ]
           },
           "authMode": {
@@ -2385,7 +2401,8 @@
             "type": "string",
             "enum": [
               "text/html",
-              "application/json"
+              "application/json",
+              "image/svg+xml"
             ]
           },
           "authMode": {
@@ -2751,6 +2768,44 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "required": [
+          "prChecks",
+          "mergeChecks",
+          "review"
+        ]
+      },
+      "RepoGuidelinesInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "prChecks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "mergeChecks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "allowMerge": {
+            "type": "boolean",
+            "default": false
+          },
+          "review": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
           }
         },
         "required": [
@@ -3612,7 +3667,8 @@
               "pricing.deleted",
               "pricing.refresh",
               "pricing.refresh.failed",
-              "task_superseded"
+              "task_superseded",
+              "slack_delivery"
             ]
           },
           "agentId": {
@@ -4023,7 +4079,7 @@
           "config": {
             "type": "object",
             "additionalProperties": {},
-            "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
+            "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
           },
           "next": {
             "anyOf": [
@@ -4452,7 +4508,7 @@
                     "config": {
                       "type": "object",
                       "additionalProperties": {},
-                      "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
+                      "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
                     },
                     "next": {
                       "anyOf": [
@@ -9153,6 +9209,13 @@
                                   "max",
                                   "available"
                                 ]
+                              },
+                              "claudeTransport": {
+                                "type": "string",
+                                "enum": [
+                                  "cli",
+                                  "sdk"
+                                ]
                               }
                             },
                             "required": [
@@ -9287,9 +9350,9 @@
       }
     },
     "/api/agents/{id}/runtime": {
-      "patch": {
-        "summary": "Update an agent's runtime harness and default model",
-        "description": "Updates `agents.harness_provider` and upserts agent-scoped `swarm_config` rows for HARNESS_PROVIDER, MODEL_OVERRIDE, and REASONING_EFFORT_OVERRIDE. The settings apply to future provider sessions. For `model` and `reasoning_effort`: omit the field to leave it unchanged, send `null` to clear the corresponding override, or send a value to set it.",
+      "get": {
+        "summary": "Get an agent's runtime configuration",
+        "description": "Returns the agent's explicit Claude transport override, the effective transport after config precedence, and whether Claude Bridge is effective. Values never include credentials.",
         "tags": [
           "Agents"
         ],
@@ -9306,6 +9369,110 @@
             "required": true,
             "name": "id",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "repoId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent runtime configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "claude": {
+                      "type": "object",
+                      "properties": {
+                        "transport": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "cli",
+                            "sdk",
+                            null
+                          ]
+                        },
+                        "effectiveTransport": {
+                          "type": "string",
+                          "enum": [
+                            "cli",
+                            "sdk"
+                          ]
+                        },
+                        "inheritedTransport": {
+                          "type": "string",
+                          "enum": [
+                            "cli",
+                            "sdk"
+                          ]
+                        },
+                        "bridgeEffective": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "transport",
+                        "effectiveTransport",
+                        "inheritedTransport",
+                        "bridgeEffective"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "claude"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update an agent's runtime harness and default model",
+        "description": "Updates `agents.harness_provider` and agent-scoped runtime config. The settings apply to future provider sessions. For `model`, `reasoning_effort`, and `claude.transport`: omit the field to leave it unchanged, send `null` to clear the corresponding override, or send a value to set it.",
+        "tags": [
+          "Agents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "repoId",
+            "in": "query"
           }
         ],
         "requestBody": {
@@ -9404,6 +9571,22 @@
                     "required": [
                       "target"
                     ]
+                  },
+                  "claude": {
+                    "type": "object",
+                    "properties": {
+                      "transport": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "cli",
+                          "sdk",
+                          null
+                        ]
+                      }
+                    }
                   }
                 },
                 "required": [
@@ -9854,6 +10037,35 @@
                   },
                   "changeReason": {
                     "type": "string"
+                  },
+                  "expectedHashes": {
+                    "type": "object",
+                    "properties": {
+                      "soulMd": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "identityMd": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "toolsMd": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "claudeMd": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "setupScript": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "heartbeatMd": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
                   }
                 }
               }
@@ -10067,6 +10279,13 @@
                             "current",
                             "max",
                             "available"
+                          ]
+                        },
+                        "claudeTransport": {
+                          "type": "string",
+                          "enum": [
+                            "cli",
+                            "sdk"
                           ]
                         }
                       },
@@ -14785,6 +15004,7 @@
                       "system.error",
                       "system.profile_sync_rejected",
                       "system.profile_sync_reconciled",
+                      "system.profile_sync_conflict",
                       "script.global_upsert",
                       "schedule.deleted"
                     ]
@@ -14932,6 +15152,7 @@
                 "system.error",
                 "system.profile_sync_rejected",
                 "system.profile_sync_reconciled",
+                "system.profile_sync_conflict",
                 "script.global_upsert",
                 "schedule.deleted"
               ]
@@ -15112,6 +15333,7 @@
                             "system.error",
                             "system.profile_sync_rejected",
                             "system.profile_sync_reconciled",
+                            "system.profile_sync_conflict",
                             "script.global_upsert",
                             "schedule.deleted"
                           ]
@@ -17801,6 +18023,16 @@
           },
           "400": {
             "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied: requires memory owner or lead",
             "content": {
               "application/json": {
                 "schema": {
@@ -21285,7 +21517,8 @@
                     "type": "string",
                     "enum": [
                       "text/html",
-                      "application/json"
+                      "application/json",
+                      "image/svg+xml"
                     ]
                   },
                   "authMode": {
@@ -21501,7 +21734,8 @@
                             "type": "string",
                             "enum": [
                               "text/html",
-                              "application/json"
+                              "application/json",
+                              "image/svg+xml"
                             ]
                           },
                           "authMode": {
@@ -21693,7 +21927,8 @@
                     "type": "string",
                     "enum": [
                       "text/html",
-                      "application/json"
+                      "application/json",
+                      "image/svg+xml"
                     ]
                   },
                   "authMode": {
@@ -22111,7 +22346,7 @@
     },
     "/p/{id}": {
       "get": {
-        "summary": "Render a page (HTML inline; JSON redirects to SPA)",
+        "summary": "Render a page (HTML/SVG inline; JSON redirects to SPA)",
         "tags": [
           "Pages"
         ],
@@ -22127,7 +22362,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Rendered HTML page"
+            "description": "Rendered HTML page or raw SVG image"
           },
           "302": {
             "description": "Redirect to SPA for JSON content"
@@ -22202,7 +22437,8 @@
                       "type": "string",
                       "enum": [
                         "text/html",
-                        "application/json"
+                        "application/json",
+                        "image/svg+xml"
                       ]
                     },
                     "authMode": {
@@ -23167,6 +23403,9 @@
                             "requestedBy": {
                               "type": "object",
                               "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
                                 "name": {
                                   "type": "string",
                                   "minLength": 1
@@ -23251,6 +23490,9 @@
                             "requestedBy": {
                               "type": "object",
                               "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
                                 "name": {
                                   "type": "string",
                                   "minLength": 1
@@ -23996,7 +24238,7 @@
                     ]
                   },
                   "guidelines": {
-                    "$ref": "#/components/schemas/RepoGuidelines"
+                    "$ref": "#/components/schemas/RepoGuidelinesInput"
                   }
                 }
               }
@@ -24207,7 +24449,7 @@
                     "$ref": "#/components/schemas/RepoHooks"
                   },
                   "guidelines": {
-                    "$ref": "#/components/schemas/RepoGuidelines"
+                    "$ref": "#/components/schemas/RepoGuidelinesInput"
                   }
                 },
                 "required": [
@@ -24261,6 +24503,811 @@
                   "required": [
                     "error"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/@swarm/realtime.js": {
+      "get": {
+        "summary": "Browser SDK for realtime rooms and channels",
+        "tags": [
+          "Pages"
+        ],
+        "responses": {
+          "200": {
+            "description": "JavaScript module"
+          }
+        }
+      }
+    },
+    "/api/rooms/get": {
+      "post": {
+        "summary": "Read a realtime room",
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+                    "default": "default"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[a-zA-Z0-9._:/%-]{1,512}$"
+                  },
+                  "schemaVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "default": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Room view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "room": {
+                      "type": "object",
+                      "properties": {
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "schemaVersion": {
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "type": "string"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "state": {},
+                        "snapshot": {
+                          "type": "string"
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "namespace",
+                        "name",
+                        "schemaVersion",
+                        "generation",
+                        "stale",
+                        "snapshot",
+                        "bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "room"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or room error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Room access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Room not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the room body limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Read a realtime room",
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+              "default": "default"
+            },
+            "required": false,
+            "name": "name",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[a-zA-Z0-9._:/%-]{1,512}$"
+            },
+            "required": false,
+            "name": "namespace",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 1
+            },
+            "required": false,
+            "name": "schemaVersion",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Room view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "room": {
+                      "type": "object",
+                      "properties": {
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "schemaVersion": {
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "type": "string"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "state": {},
+                        "snapshot": {
+                          "type": "string"
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "namespace",
+                        "name",
+                        "schemaVersion",
+                        "generation",
+                        "stale",
+                        "snapshot",
+                        "bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "room"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or room error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Room access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Room not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms/change": {
+      "post": {
+        "summary": "Apply operations to a realtime room",
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+                    "default": "default"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[a-zA-Z0-9._:/%-]{1,512}$"
+                  },
+                  "schemaVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "default": 1
+                  },
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "set"
+                              ]
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            },
+                            "value": {}
+                          },
+                          "required": [
+                            "type",
+                            "path",
+                            "value"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "delete"
+                              ]
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "path"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "insert"
+                              ]
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "values": {
+                              "type": "array",
+                              "items": {},
+                              "minItems": 1
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "path",
+                            "index",
+                            "values"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "increment"
+                              ]
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            },
+                            "by": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "path",
+                            "by"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  },
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                ]
+                              },
+                              "minItems": 1,
+                              "maxItems": 32
+                            },
+                            "index": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "deleteCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "insert": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "path",
+                            "index"
+                          ]
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 1000
+                  }
+                },
+                "required": [
+                  "operations"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Changed room view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "room": {
+                      "type": "object",
+                      "properties": {
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "schemaVersion": {
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "type": "string"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "state": {},
+                        "snapshot": {
+                          "type": "string"
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "namespace",
+                        "name",
+                        "schemaVersion",
+                        "generation",
+                        "stale",
+                        "snapshot",
+                        "bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "room"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or room error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Room write denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Room schema or size conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the room body limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms/reset": {
+      "post": {
+        "summary": "Reset a realtime room",
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+                    "default": "default"
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[a-zA-Z0-9._:/%-]{1,512}$"
+                  },
+                  "schemaVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "default": 1
+                  },
+                  "state": {}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reset room view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "room": {
+                      "type": "object",
+                      "properties": {
+                        "namespace": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "schemaVersion": {
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "type": "string"
+                        },
+                        "stale": {
+                          "type": "boolean"
+                        },
+                        "state": {},
+                        "snapshot": {
+                          "type": "string"
+                        },
+                        "bytes": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "namespace",
+                        "name",
+                        "schemaVersion",
+                        "generation",
+                        "stale",
+                        "snapshot",
+                        "bytes"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "room"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or room error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Room write denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the room body limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rooms/decode": {
+      "post": {
+        "summary": "Decode a realtime room snapshot",
+        "tags": [
+          "Rooms"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decoded room state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schemaVersion": {
+                      "type": "integer"
+                    },
+                    "generation": {
+                      "type": "string"
+                    },
+                    "state": {}
+                  },
+                  "required": [
+                    "schemaVersion",
+                    "generation"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid room snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds the room body limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -24477,6 +25524,9 @@
                       "format": "date-time"
                     },
                     "createdByAgentId": {
+                      "type": "string"
+                    },
+                    "parentTaskId": {
                       "type": "string"
                     },
                     "timezone": {
@@ -24833,6 +25883,9 @@
                               "createdByAgentId": {
                                 "type": "string"
                               },
+                              "parentTaskId": {
+                                "type": "string"
+                              },
                               "timezone": {
                                 "type": "string",
                                 "default": "UTC"
@@ -25012,6 +26065,9 @@
                                 "format": "date-time"
                               },
                               "createdByAgentId": {
+                                "type": "string"
+                              },
+                              "parentTaskId": {
                                 "type": "string"
                               },
                               "timezone": {
@@ -25236,6 +26292,9 @@
                           "format": "date-time"
                         },
                         "createdByAgentId": {
+                          "type": "string"
+                        },
+                        "parentTaskId": {
                           "type": "string"
                         },
                         "timezone": {
@@ -25475,6 +26534,9 @@
                       "format": "date-time"
                     },
                     "createdByAgentId": {
+                      "type": "string"
+                    },
+                    "parentTaskId": {
                       "type": "string"
                     },
                     "timezone": {
@@ -25834,6 +26896,9 @@
                       "format": "date-time"
                     },
                     "createdByAgentId": {
+                      "type": "string"
+                    },
+                    "parentTaskId": {
                       "type": "string"
                     },
                     "timezone": {
@@ -26214,6 +27279,9 @@
                       "format": "date-time"
                     },
                     "createdByAgentId": {
+                      "type": "string"
+                    },
+                    "parentTaskId": {
                       "type": "string"
                     },
                     "timezone": {
@@ -32153,6 +33221,20 @@
                   "agentId": {
                     "type": "string"
                   },
+                  "routingReason": {
+                    "type": "string",
+                    "enum": [
+                      "skill",
+                      "continuity",
+                      "overflow",
+                      "human_pinned",
+                      "reroute_fault"
+                    ]
+                  },
+                  "routingNote": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -33233,6 +34315,132 @@
                     "costToday",
                     "costMtd"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/tokens": {
+      "post": {
+        "summary": "Mint an ephemeral session token for an ACP provider session",
+        "description": "Returns a short-lived aseph_ bearer for use by the ACP adapter in place of the full operator key. The token expires at the requested TTL and is actively revoked when the session ends. Only the operator key may mint session tokens.",
+        "tags": [
+          "Sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agentId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "taskId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "ttlMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 604800000
+                  }
+                },
+                "required": [
+                  "agentId",
+                  "taskId",
+                  "ttlMs"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Minted token plaintext (returned once) and its stable token ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tokenId": {
+                      "type": "string"
+                    },
+                    "plaintext": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tokenId",
+                    "plaintext"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/tokens/{tokenId}": {
+      "delete": {
+        "summary": "Revoke an ephemeral session token",
+        "description": "Revokes an aseph_ bearer token by ID. No-op if already revoked.",
+        "tags": [
+          "Sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "tokenId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Token revoked (or was already revoked)"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -37852,6 +39060,9 @@
                           "createdByAgentId": {
                             "type": "string"
                           },
+                          "parentTaskId": {
+                            "type": "string"
+                          },
                           "timezone": {
                             "type": "string",
                             "default": "UTC"
@@ -39005,6 +40216,20 @@
                   "agentId": {
                     "type": "string"
                   },
+                  "routingReason": {
+                    "type": "string",
+                    "enum": [
+                      "skill",
+                      "continuity",
+                      "overflow",
+                      "human_pinned",
+                      "reroute_fault"
+                    ]
+                  },
+                  "routingNote": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
                   "taskType": {
                     "type": "string"
                   },
@@ -39270,7 +40495,15 @@
                       },
                       "providerMeta": {
                         "type": "object",
-                        "properties": {}
+                        "properties": {
+                          "transport": {
+                            "type": "string",
+                            "enum": [
+                              "cli",
+                              "sdk"
+                            ]
+                          }
+                        }
                       },
                       "harnessVariant": {
                         "type": "string"
@@ -40250,7 +41483,25 @@
                     "tasks": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/AgentTask"
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/AgentTask"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "attachments": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/components/schemas/TaskAttachment"
+                                }
+                              }
+                            },
+                            "required": [
+                              "attachments"
+                            ]
+                          }
+                        ]
                       }
                     }
                   },
@@ -45517,7 +46768,7 @@
                   "config": {
                     "type": "object",
                     "additionalProperties": {},
-                    "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
+                    "description": "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. For script: { runtime, script, args?, timeout? }. For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. SECURITY: executable source for script/swarm-script nodes does not interpolate trigger.* or upstream node outputs; only input/workflow/swarm/run values are allowed in inline script source, and named swarm-script source is not workflow-interpolated. Pass dynamic values through config.args instead (inline script receives them as argv; swarm-script receives its args object). NOTE: config.outputSchema on agent-task nodes validates the AGENT's raw JSON output, while node-level outputSchema validates the EXECUTOR's return value ({taskId, taskOutput})."
                   },
                   "next": {
                     "anyOf": [

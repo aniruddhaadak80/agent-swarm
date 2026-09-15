@@ -340,6 +340,15 @@ export const AgentTaskSourceSchema = z.enum([
 ]);
 export type AgentTaskSource = z.infer<typeof AgentTaskSourceSchema>;
 
+export const RoutingReasonSchema = z.enum([
+  "skill",
+  "continuity",
+  "overflow",
+  "human_pinned",
+  "reroute_fault",
+]);
+export type RoutingReason = z.infer<typeof RoutingReasonSchema>;
+
 // ---------------------------------------------------------------------------
 // Harness Provider
 // ---------------------------------------------------------------------------
@@ -455,7 +464,7 @@ type NoProviderMeta = Record<string, never>;
 
 export type ProviderMetaMap = {
   devin: DevinProviderMeta;
-  claude: NoProviderMeta;
+  claude: { transport?: "cli" | "sdk" };
   codex: NoProviderMeta;
   pi: NoProviderMeta;
   "claude-managed": NoProviderMeta;
@@ -504,6 +513,8 @@ export const AgentTaskSchema = z
     title: z.string().optional(), // Human-facing display title override (e.g. session rename); falls back to `task` when unset
     status: AgentTaskStatusSchema,
     source: AgentTaskSourceSchema.default("mcp"),
+    routingReason: RoutingReasonSchema.optional(),
+    routingNote: z.string().max(200).optional(),
 
     // Task metadata
     taskType: z.string().max(50).optional(), // e.g., "bug", "feature", "chore"
@@ -664,6 +675,8 @@ export const CreateTaskOptionsSchema = z.object({
   agentId: z.string().nullable().optional(),
   creatorAgentId: z.string().optional(),
   source: AgentTaskSourceSchema.optional(),
+  routingReason: RoutingReasonSchema.optional(),
+  routingNote: z.string().max(200).optional(),
   taskType: z.string().max(50).optional(),
   tags: z.array(z.string()).optional(),
   priority: z.number().int().min(0).max(100).optional(),
@@ -1145,8 +1158,8 @@ export type AgentLatestModel = z.infer<typeof AgentLatestModelSchema>;
 
 /**
  * Worker-reported Bedrock enumeration block. Only present when the pi harness
- * is in Bedrock SDK mode (`BEDROCK_AUTH_MODE=sdk` or
- * `MODEL_OVERRIDE=amazon-bedrock/*`). Rides inside `cred_status` JSON (no new
+ * is in a Bedrock mode (`BEDROCK_AUTH_MODE=sdk`, `BEDROCK_AUTH_MODE=bearer`,
+ * or `MODEL_OVERRIDE=amazon-bedrock/*`). Rides inside `cred_status` JSON (no new
  * DB column). `models` is the intersection of the models invocable by this
  * account/region (on-demand/ACTIVE foundation models ∪ inference profiles) with
  * the set the pi-ai Converse harness can actually drive — Converse-incompatible
@@ -1287,6 +1300,20 @@ export type VersionMeta = {
   changeReason?: string | null;
 };
 
+/**
+ * Compare-and-set token for a profile update, per field: the content hash the
+ * writer based its edit on (e.g. what a session materialized from the DB). A
+ * field whose current DB hash differs is dropped: the DB moved since the writer
+ * read it, so its copy is stale, not an edit.
+ */
+export type ProfileExpectedHashes = Partial<Record<VersionableField, string>>;
+
+export type ProfileSyncConflict = {
+  field: VersionableField;
+  expectedHash: string;
+  currentHash: string;
+};
+
 // Channel Types
 export const ChannelTypeSchema = z.enum(["public", "dm"]);
 
@@ -1382,6 +1409,8 @@ export const AgentLogEventTypeSchema = z.enum([
   "pricing.refresh.failed",
   // Graceful pause/resume via follow-up
   "task_superseded",
+  // Slack render v2 delegated-delivery observability (plan section 3.10)
+  "slack_delivery",
 ]);
 
 // Reasons a task can be superseded (terminal) and replaced by a "resume" follow-up.
@@ -1532,6 +1561,7 @@ export const EventNameSchema = z.enum([
   "system.error",
   "system.profile_sync_rejected",
   "system.profile_sync_reconciled",
+  "system.profile_sync_conflict",
   // Script catalog events
   "script.global_upsert",
   // Schedule events
@@ -1597,6 +1627,9 @@ export const ScheduledTaskSchema = z
     lastRunAt: z.iso.datetime().optional(),
     nextRunAt: z.iso.datetime().optional(),
     createdByAgentId: z.string().optional(),
+    // Set only by `defer-task`: the task this schedule wakes up to continue.
+    // Passed through as the created task's `parentTaskId`.
+    parentTaskId: z.string().optional(),
     timezone: z.string().default("UTC"),
     consecutiveErrors: z.number().int().min(0).default(0),
     lastErrorAt: z.iso.datetime().optional(),
@@ -1689,6 +1722,21 @@ export const RepoGuidelinesSchema = z
   .openapi("RepoGuidelines");
 
 export type RepoGuidelines = z.infer<typeof RepoGuidelinesSchema>;
+
+/** Upper bound per guideline list. The repository prompt section renders every
+ * entry outside the bootstrap budget, so the cap lives at the write boundary. */
+export const REPO_GUIDELINES_MAX_ENTRIES = 50;
+
+/** Write-side guidelines schema: same shape, bounded lists. Reads keep the
+ * unbounded `RepoGuidelinesSchema` so an older row never fails a response. */
+export const RepoGuidelinesInputSchema = z
+  .object({
+    prChecks: z.array(z.string()).max(REPO_GUIDELINES_MAX_ENTRIES),
+    mergeChecks: z.array(z.string()).max(REPO_GUIDELINES_MAX_ENTRIES),
+    allowMerge: z.boolean().optional().default(false),
+    review: z.array(z.string()).max(REPO_GUIDELINES_MAX_ENTRIES),
+  })
+  .openapi("RepoGuidelinesInput");
 
 export const RepoHooksSchema = z
   .object({
@@ -1901,7 +1949,7 @@ export const WorkflowNodeSchema = z
     config: z
       .record(z.string(), z.unknown())
       .describe(
-        "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, tags?, priority?, dir?, vcsRepo?, model? }. " +
+        "Executor-specific config. For agent-task: { template, outputSchema?, agentId?, routingReason?, routingNote?, tags?, priority?, dir?, vcsRepo?, model? }; configured agentId defaults routingReason to human_pinned. " +
           "For script: { runtime, script, args?, timeout? }. " +
           "For swarm-script: { scriptName, scope?, pinHash?, args?, fsMode?, timeoutMs? (1000-300000) }. " +
           "Agent-task templates and ordinary config values support {{interpolation}} from the node's inputs context, including trigger and declared upstream aliases. " +
@@ -2210,10 +2258,10 @@ export type WorkflowVersion = z.infer<typeof WorkflowVersionSchema>;
 // Pages — DB-backed lightweight artifacts (HTML or JSON spec) stored in
 // SQLite and served at /p/:id. See plan: thoughts/taras/plans/2026-05-12-db-backed-pages/.
 // PageContentTypeSchema + PageAuthModeSchema MUST stay in sync with the SQL
-// CHECK constraints in src/be/migrations/059_pages.sql.
+// CHECK constraints in src/be/migrations/148_pages_svg.sql.
 // ---------------------------------------------------------------------------
 
-export const PageContentTypeSchema = z.enum(["text/html", "application/json"]);
+export const PageContentTypeSchema = z.enum(["text/html", "application/json", "image/svg+xml"]);
 export type PageContentType = z.infer<typeof PageContentTypeSchema>;
 
 export const PageAuthModeSchema = z.enum(["public", "authed", "password"]);

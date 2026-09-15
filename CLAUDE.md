@@ -136,7 +136,7 @@ File-based, forward-only SQL in `src/be/migrations/NNN_descriptive_name.sql`. Ru
 
 Test against a fresh DB (`rm agent-swarm-db.sqlite && bun run start:http`) **and** an existing one. Never modify an applied migration — create a new one. No `down` migrations (SQLite rollbacks flake). Keep `AgentTaskSourceSchema` in `src/types.ts` in sync with SQL CHECK constraints.
 
-Before adding a migration, check its ordinal against `main`'s tail and every other open PR that adds one; the conflict check only compares against `main`. A duplicate ordinal is applied once and silently skipped by the runner; a gap is harmless, but a duplicate is dangerous.
+Before adding a migration, check its ordinal against `main`'s tail and every other open PR that adds one. `scripts/check-migration-conflicts.sh` (CI-enforced) checks uniqueness, base-branch immutability, **and** that every migration added since the base branch sorts strictly above the base branch's tail — so a migration numbered against a stale `main` fails CI instead of silently landing behind it. A duplicate ordinal is applied once and silently skipped by the runner; a gap is harmless, but a duplicate is dangerous.
 
 </important>
 
@@ -367,7 +367,7 @@ Full rulebook: [apps/evals/SCENARIO-AUTHORING.md](./apps/evals/SCENARIO-AUTHORIN
 ## Related
 
 - [runbooks/db-retention.md](./runbooks/db-retention.md) — opt-in retention for non-critical SQLite log tables
-- [runbooks/](./runbooks/) — ci, release, local-development, testing, workflows, skills, memory-system, secret-scrubbing, harness-providers, seed-scripts, heartbeat-crash-recovery
+- [runbooks/](./runbooks/) — ci, release, local-development, testing, k8s-test-cluster, workflows, skills, memory-system, secret-scrubbing, harness-providers, seed-scripts, heartbeat-crash-recovery
 - [LOCAL_TESTING.md](./LOCAL_TESTING.md) — unit / E2E / entrypoint / MCP / UI testing recipes
 - [BUSINESS_USE.md](./BUSINESS_USE.md) — flow diagrams and instrumentation
 - [MCP.md](./MCP.md) — MCP tools reference

@@ -52,6 +52,8 @@ It runs deterministic HTTP and MCP scenarios with simulated agents. It does not 
 The runner discovers route and MCP tool coverage from the running server.
 It writes `./e2e-results.json` by default.
 
+The runner discovers exported scenarios in `scripts/e2e/scenarios/*.ts` and sorts them by their explicit numeric `order`. New scenarios need a unique name and order; duplicate values or a scenario file with no valid export fail discovery. Use optional `groups` tags and `--group` to select related scenarios without editing the runner or workflow lists.
+
 Every run also boots an in-process `@desplega.ai/slack-mock` before the API and starts the server with `NODE_ENV=test`,
 so Bolt connects to the mock over Socket Mode (the socket-mode guard refuses `NODE_ENV=development`).
 Scenarios drive that Slack workspace through `ctx.slack`.
@@ -65,6 +67,7 @@ reuses the run's database, port, API key, secrets, agent-fs directory, and Slack
 bun run e2e
 bun run e2e --list
 bun run e2e --only health,auth
+bun run e2e --group visuals-v2
 bun run e2e --only slack-mention
 bun run e2e --only slack-relay-restart
 bun run e2e --skip workflow-script-node
@@ -84,6 +87,22 @@ Override with `E2E_MODEL_<PROVIDER>`. Each leg needs its provider credential in 
 bun run e2e --only health --harness claude
 bun run e2e --only health --harness claude,pi --harness-attempts 2
 E2E_MODEL_CLAUDE=claude-haiku-4-5 bun run e2e --only health --harness claude
+E2E_CLAUDE_TRANSPORT=cli E2E_MODEL_CLAUDE=claude-haiku-4-5 bun run e2e --only health --harness claude
+E2E_CLAUDE_TRANSPORT=sdk E2E_MODEL_CLAUDE=claude-haiku-4-5 bun run e2e --only health --harness claude
+```
+
+The Claude leg checks the persisted `providerMeta.transport`, task output, and cost records.
+`E2E_CLAUDE_TRANSPORT` defaults to `cli` and accepts `cli` or `sdk`.
+Use `E2E_CLAUDE_BINARY` to select the same installed executable for both runs.
+Set `E2E_WORKER_BINARY=/usr/local/bin/agent-swarm` to exercise a compiled worker inside its image.
+Run both commands in the same worker image to compare Linux behavior.
+Use the image's `tini` entrypoint, or `docker run --init`, so orphaned processes are reaped.
+
+The opt-in SDK lifecycle suite exercises concurrent input, explicit compaction, and tool cancellation with an isolated home directory.
+It requires an OAuth token and defaults to Haiku with bounded turns:
+
+```bash
+RUN_CLAUDE_SDK_LIFECYCLE=1 bun run test:root -- src/tests/claude-sdk-live-lifecycle.test.ts
 ```
 
 When the runner is root and `gosu` exists (the nightly container job), the worker starts as `gosu worker env HOME=<temp HOME> ...`.
@@ -100,7 +119,13 @@ environment plus common token shapes) before they enter the result file or the c
 ### Nightly E2E workflow
 
 `.github/workflows/nightly-e2e.yml` runs the contract scenarios once on plain Ubuntu, then one harness
-leg per provider inside the `worker:slim` image, then a `report` job that merges every result file with
+leg per provider inside the `worker:slim` image, plus a separate Claude SDK leg.
+Both Claude legs use Haiku, the same image, and the dedicated OAuth secret.
+Each leg asserts the selected transport from the completed task and requires persisted cost records.
+The container uses `--init` to reap child processes.
+The CLI leg keeps the historical `claude` label. The SDK leg uses `claude-sdk` in artifacts, failures, and cost trends.
+A missing SDK result fails the report independently of the CLI result.
+A `report` job merges every result file with
 `scripts/e2e/nightly-report.ts` into one step summary and the `nightly-e2e-report` artifact. The report
 lists cost per leg, the cost trend over earlier runs, warnings (retries, missing cost rows, an expiring
 Codex OAuth blob), and the worker log tail of every failed attempt. While the nightly fails, one sticky

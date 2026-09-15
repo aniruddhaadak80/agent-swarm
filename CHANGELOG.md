@@ -6,6 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.147.0] - 2026-09-14
+
+### Added
+- **Pi workers support Bedrock bearer authentication**, requiring a Bedrock API key and explicit region, with live credential probing and model enumeration (#1430).
+- **Pages serve cached SVG images directly**, including a seeded refresh script for live repository star history (#1448).
+- **Task turn prompts use seeded skills**, and resumed tasks retain attachment fetch instructions and required output schemas (#1442).
+
+### Changed
+- **Task transitions live in a dedicated database repository**, preserving task lifecycle behavior (#1456).
+- **Database repositories isolate runtime lifecycle, agents, context versions, and task reads**, preserving the public database facade (#1450, #1454, #1455).
+
+### Fixed
+- **New heartbeat tracked items require an expiry**, preventing unbounded tracking entries (#1458).
+- **ACP target processes receive an ephemeral session credential**, scoped to the agent and task and revoked when the session ends (#1417).
+- **Codex unknown log items show their original type and a readable summary** (#1459).
+- **Slack files reach workers as task attachments**, both when shared with the bot and when fetched by task-scoped Slack tools (#1438).
+- **Concurrent Claude sessions cannot overwrite newer profile content with stale files**, using lineage-aware compare-and-set synchronization (#1433).
+- **Deferred tasks create uniquely named wake-up schedules** to avoid collisions (#1451).
+- **E2E visual staging preserves nested frame directories** (#1446).
+
+## [1.146.0] - 2026-09-12
+
+### Added
+- **The session composer accepts drag-and-drop attachments**, with file-type and 50 MB size checks before upload (#1432).
+- **The E2E runner discovers scenarios automatically**, enforces unique names and execution order, and supports group selection. Slack visual reports can publish on fork PRs through validated artifacts (#1439).
+
+### Changed
+- **Document delivery defaults to Markdown in agent-fs**, or Markdown task attachments when agent-fs is unavailable. Pages are reserved for polished shared artifacts or explicit requests (#1437).
+
+### Fixed
+- **Credentialed CORS uses a hosted/dev allowlist by default**. Custom dashboards must configure `CORS_ALLOWED_ORIGINS`; the deployment-only compatibility flag does not grant cookie credentials to unlisted origins (#1436).
+- **ACP prompt usage persists for token accounting**, including reported token counters (#1431).
+- **Persisted ACP tool updates render without transcript noise** in session logs (#1429).
+
+## [1.145.0] - 2026-09-11
+
+### Added
+- **Task callers can require structured JSON results with `send-task.outputSchema`** on both owner and user MCP surfaces (#1419). Invalid nested schemas are rejected at submission, and completion validates the result.
+- **The Configuration page exposes the follow-up context preamble budget**, with a validated 100–20,000 token range and a restart requirement (#1423).
+
+### Changed
+- **25 core tools are available without discovery**, adding frequently used script, query, KV, configuration, repository, memory-editing, and steering operations (#1422).
+
+### Fixed
+- **Memory edits enforce ownership or lead authorization**, including edits by ID to swarm-visible memories (#1425).
+- **Fallback database queries use a read-only connection**, blocking writes even when a statement returns rows (#1424).
+
+## [1.144.0] - 2026-09-10
+
+### Added
+- **Realtime rooms share state between pages, agents, scripts, and workflows** (#1406), with browser presence, transient channels, MCP room operations, and a dashboard snapshot inspector.
+- **Claude workers can opt into the Agent SDK transport** (#1404). The dashboard exposes transport selection and identifies SDK sessions on task details and agent lists (#1411).
+- **Delegated Slack task results reach the originating thread** (#1372), including late child results and failure outcomes when delegation rendering is enabled.
+
+### Fixed
+- **Published pages default to a light canvas** (#1409), and the browser SDK no longer requests the removed configuration endpoint (#1412).
+- **Sandbox resource limits always run through Bash** (#1405), avoiding shell-dependent launch failures.
+- **WebSocket dependencies no longer resolve the vulnerable ws version** (#1410, #1415).
+- **Rebuilt visual reports preserve Vercel deployment guards** (#1407).
+
 ## [1.143.0] - 2026-09-09
 
 ### Added

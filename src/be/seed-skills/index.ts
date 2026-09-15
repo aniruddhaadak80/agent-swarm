@@ -50,6 +50,8 @@ import codeReviewingConfig from "../../../templates/skills/code-reviewing/config
 import codeReviewingContent from "../../../templates/skills/code-reviewing/content.md" with {
   type: "text",
 };
+import commsConfig from "../../../templates/skills/comms/config.json" with { type: "text" };
+import commsContent from "../../../templates/skills/comms/content.md" with { type: "text" };
 import composioConfig from "../../../templates/skills/composio/config.json" with { type: "text" };
 import composioContent from "../../../templates/skills/composio/content.md" with { type: "text" };
 import composioGmailConfig from "../../../templates/skills/composio-gmail/config.json" with {
@@ -154,6 +156,12 @@ import researchingConfig from "../../../templates/skills/researching/config.json
 import researchingContent from "../../../templates/skills/researching/content.md" with {
   type: "text",
 };
+import reviewOfferedTaskConfig from "../../../templates/skills/review-offered-task/config.json" with {
+  type: "text",
+};
+import reviewOfferedTaskContent from "../../../templates/skills/review-offered-task/content.md" with {
+  type: "text",
+};
 import reviewingConfig from "../../../templates/skills/reviewing/config.json" with { type: "text" };
 import reviewingContent from "../../../templates/skills/reviewing/content.md" with { type: "text" };
 import scheduledTaskResilienceConfig from "../../../templates/skills/scheduled-task-resilience/config.json" with {
@@ -230,6 +238,12 @@ import vPlanningContent from "../../../templates/skills/v-planning/content.md" w
 };
 import verifyingConfig from "../../../templates/skills/verifying/config.json" with { type: "text" };
 import verifyingContent from "../../../templates/skills/verifying/content.md" with { type: "text" };
+import workOnTaskConfig from "../../../templates/skills/work-on-task/config.json" with {
+  type: "text",
+};
+import workOnTaskContent from "../../../templates/skills/work-on-task/content.md" with {
+  type: "text",
+};
 import workflowIterateConfig from "../../../templates/skills/workflow-iterate/config.json" with {
   type: "text",
 };
@@ -306,6 +320,7 @@ const BUILT_IN_SKILL_SOURCES = [
   { config: brainstormingConfig, body: brainstormingContent },
   { config: codeQualityConfig, body: codeQualityContent },
   { config: codeReviewingConfig, body: codeReviewingContent },
+  { config: commsConfig, body: commsContent },
   { config: composioConfig, body: composioContent },
   { config: composioGmailConfig, body: composioGmailContent },
   { config: composioGoogleCalendarConfig, body: composioGoogleCalendarContent },
@@ -328,6 +343,7 @@ const BUILT_IN_SKILL_SOURCES = [
   { config: qaConfig, body: qaContent },
   { config: questioningConfig, body: questioningContent },
   { config: researchingConfig, body: researchingContent },
+  { config: reviewOfferedTaskConfig, body: reviewOfferedTaskContent },
   { config: reviewingConfig, body: reviewingContent },
   { config: scheduledTaskResilienceConfig, body: scheduledTaskResilienceContent },
   { config: schedulingConfig, body: schedulingContent },
@@ -342,6 +358,7 @@ const BUILT_IN_SKILL_SOURCES = [
   { config: vImplementingConfig, body: vImplementingContent },
   { config: vPlanningConfig, body: vPlanningContent },
   { config: verifyingConfig, body: verifyingContent },
+  { config: workOnTaskConfig, body: workOnTaskContent },
   { config: workflowIterateConfig, body: workflowIterateContent },
   { config: workflowStructuredOutputConfig, body: workflowStructuredOutputContent },
   { config: wtsExpertConfig, body: wtsExpertContent },

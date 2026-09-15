@@ -229,6 +229,40 @@ const scriptRunNudge = (r: SwarmToolResult): string | undefined => {
   return !r.ok && body?.error === "timeout" ? SCRIPT_RUN_TIMEOUT_NUDGE : scriptAuthoringNudge(r);
 };
 
+const SLACK_API_DISK_NUDGE =
+  "That path is on the API server's disk, not in your container — call this from a task you own (or pass its taskId) to get the file as a task attachment with a fetchCommand.";
+
+const slackDownloadFileNudge = (r: SwarmToolResult): string | undefined =>
+  r.ok && (r.data as { savedPath?: unknown } | undefined)?.savedPath
+    ? SLACK_API_DISK_NUDGE
+    : undefined;
+
+const slackReadNudge = (r: SwarmToolResult): string | undefined => {
+  if (!r.ok) return undefined;
+  const messages = (r.data as { messages?: Array<{ files?: Array<{ localPath?: unknown }> }> })
+    ?.messages;
+  return messages?.some((m) => m.files?.some((f) => Boolean(f.localPath)))
+    ? SLACK_API_DISK_NUDGE
+    : undefined;
+};
+
+// Sole caller (storeProgressBlockedWaitingNudge) only reaches this once ms is
+// past BLOCKED_WAITING_MIN_ELAPSED_MS (3 minutes), so there's no sub-minute case.
+function formatIdleDuration(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes > 0 ? `${hours}h${remMinutes}m` : `${hours}h`;
+}
+
+const storeProgressBlockedWaitingNudge = (r: SwarmToolResult): string | undefined => {
+  if (!r.ok) return undefined;
+  const ms = (r.data as { blockedWaitingElapsedMs?: unknown } | undefined)?.blockedWaitingElapsedMs;
+  if (typeof ms !== "number") return undefined;
+  return `That reads as blocked-waiting, ${formatIdleDuration(ms)} since your last update — call defer-task so a wake-up task resumes you instead of polling manually.`;
+};
+
 const workflowLongScriptTimeoutNudge = (r: SwarmToolResult): string | undefined => {
   if (!r.ok) return undefined;
   const hint = (r.data as { longScriptTimeoutHint?: unknown } | undefined)?.longScriptTimeoutHint;
@@ -241,6 +275,9 @@ const workflowLongScriptTimeoutNudge = (r: SwarmToolResult): string | undefined 
  * single sentence; derive only from already-scrubbed result fields.
  */
 export const NUDGES: Record<string, (result: SwarmToolResult) => string | undefined> = {
+  "defer-task": (r) =>
+    r.ok ? "Stop working on this task now; the wake-up task will carry your note." : undefined,
+  "store-progress": storeProgressBlockedWaitingNudge,
   "script-run": scriptRunNudge,
   "script-upsert": scriptAuthoringNudge,
   "launch-script-run": scriptAuthoringNudge,
@@ -249,6 +286,8 @@ export const NUDGES: Record<string, (result: SwarmToolResult) => string | undefi
   "update-workflow": workflowLongScriptTimeoutNudge,
   "patch-workflow": workflowLongScriptTimeoutNudge,
   "patch-workflow-node": workflowLongScriptTimeoutNudge,
+  "slack-download-file": slackDownloadFileNudge,
+  "slack-read": slackReadNudge,
   "script-search": (r) => {
     if (!r.ok) return undefined;
     // proxyScriptsApi wraps the parsed HTTP body as data = { status, data },

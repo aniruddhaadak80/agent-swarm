@@ -59,6 +59,7 @@ import {
   ProviderNameSchema,
   ReasoningEffortSchema,
   ResumeReasonSchema,
+  RoutingReasonSchema,
   SteeringMessageSchema,
   SteeringSourceSchema,
   SteerModeSchema,
@@ -216,33 +217,45 @@ const createTask = route({
   pattern: ["api", "tasks"],
   summary: "Create a new task",
   tags: ["Tasks"],
-  body: z.object({
-    task: z.string().min(1),
-    agentId: z.string().optional(),
-    taskType: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    priority: z.number().int().min(0).max(100).optional(),
-    dependsOn: z.array(z.string()).optional(),
-    offeredTo: z.string().optional(),
-    dir: z.string().optional(),
-    parentTaskId: z.string().optional(),
-    key: AssetKeySchema.optional(),
-    source: AgentTaskSourceSchema.optional(),
-    outputSchema: z.record(z.string(), z.unknown()).optional(),
-    contextKey: z.string().optional(),
-    requestedByUserId: z.string().optional(),
-    model: z.string().optional(),
-    modelTier: ModelTierSchema.optional(),
-    effort: ReasoningEffortSchema.optional(),
-    /**
-     * Create in `draft` status instead of the normal pending/unassigned/offered
-     * status (#1240) — the task exists and is visible to its owner, but is not
-     * dispatch-eligible. Used by the UI composer while attachments are still
-     * uploading; the caller MUST promote it via `POST /api/tasks/{id}/promote-draft`
-     * once the upload batch settles (or it self-promotes on a timeout).
-     */
-    draft: z.boolean().optional(),
-  }),
+  body: z
+    .object({
+      task: z.string().min(1),
+      agentId: z.string().optional(),
+      routingReason: RoutingReasonSchema.optional(),
+      routingNote: z.string().max(200).optional(),
+      taskType: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      priority: z.number().int().min(0).max(100).optional(),
+      dependsOn: z.array(z.string()).optional(),
+      offeredTo: z.string().optional(),
+      dir: z.string().optional(),
+      parentTaskId: z.string().optional(),
+      key: AssetKeySchema.optional(),
+      source: AgentTaskSourceSchema.optional(),
+      outputSchema: z.record(z.string(), z.unknown()).optional(),
+      contextKey: z.string().optional(),
+      requestedByUserId: z.string().optional(),
+      model: z.string().optional(),
+      modelTier: ModelTierSchema.optional(),
+      effort: ReasoningEffortSchema.optional(),
+      /**
+       * Create in `draft` status instead of the normal pending/unassigned/offered
+       * status (#1240) — the task exists and is visible to its owner, but is not
+       * dispatch-eligible. Used by the UI composer while attachments are still
+       * uploading; the caller MUST promote it via `POST /api/tasks/{id}/promote-draft`
+       * once the upload batch settles (or it self-promotes on a timeout).
+       */
+      draft: z.boolean().optional(),
+    })
+    .superRefine((body, ctx) => {
+      if ((body.agentId !== undefined || body.offeredTo !== undefined) && !body.routingReason) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "routingReason is required when agentId or offeredTo is supplied.",
+          path: ["routingReason"],
+        });
+      }
+    }),
   responses: {
     201: { description: "Task created", schema: AgentTaskSchema },
     400: { description: "Validation error" },
@@ -288,7 +301,7 @@ const updateSession = route({
       claudeSessionId: z.string().min(1),
       provider: ProviderNameSchema.exclude(["devin"]).optional(),
       model: z.string().optional(),
-      providerMeta: z.object({}).optional(),
+      providerMeta: z.object({ transport: z.enum(["cli", "sdk"]).optional() }).optional(),
       harnessVariant: z.string().optional(),
       harnessVariantMeta: z.record(z.string(), z.unknown()).optional(),
     }),
@@ -515,7 +528,9 @@ const listPausedTasks = route({
   responses: {
     200: {
       description: "Paused task list",
-      schema: z.object({ tasks: z.array(AgentTaskSchema) }),
+      schema: z.object({
+        tasks: z.array(AgentTaskSchema.extend({ attachments: z.array(TaskAttachmentSchema) })),
+      }),
     },
   },
 });
@@ -802,11 +817,12 @@ export async function handleTasks(
       if (lead) defaultAgentId = lead.id;
     }
 
+    const parentTask = parsed.body.parentTaskId
+      ? await getTaskById(parsed.body.parentTaskId)
+      : null;
     let assetKey: string | undefined;
     try {
-      const inheritedKey = parsed.body.parentTaskId
-        ? (await getTaskById(parsed.body.parentTaskId))?.key
-        : undefined;
+      const inheritedKey = parentTask?.key;
       const requestedKey = parsed.body.key ?? inheritedKey;
       assetKey = requestedKey
         ? await authorizeAssetKeyWrite(requestedKey, trustedUserId)
@@ -823,6 +839,14 @@ export async function handleTasks(
       const task = await createTaskWithSiblingAwareness(parsed.body.task, {
         key: assetKey,
         agentId: defaultAgentId,
+        routingReason:
+          parsed.body.routingReason ??
+          (defaultAgentId
+            ? parentTask?.agentId === defaultAgentId
+              ? "continuity"
+              : "skill"
+            : undefined),
+        routingNote: parsed.body.routingNote,
         creatorAgentId: myAgentId || undefined,
         taskType: parsed.body.taskType || undefined,
         tags: parsed.body.tags || undefined,
@@ -1449,7 +1473,13 @@ export async function handleTasks(
       return true;
     }
     const pausedTasks = await getPausedTasksForAgent(myAgentId);
-    listPausedTasks.respond(res, 200, { tasks: pausedTasks });
+    const tasks = await Promise.all(
+      pausedTasks.map(async (task) => ({
+        ...task,
+        attachments: await getTaskAttachments(task.id),
+      })),
+    );
+    listPausedTasks.respond(res, 200, { tasks });
     return true;
   }
 

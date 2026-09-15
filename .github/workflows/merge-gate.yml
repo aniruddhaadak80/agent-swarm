@@ -381,6 +381,9 @@ jobs:
       - name: Check Bun version pins
         run: bun run check:bun-version
 
+      - name: Check realtime browser bundle
+        run: bun run check:realtime-browser
+
       # scripts/pre-push-tests.sh prints a skip-list when its worker-image sandbox
       # probe trips; keep it mechanically synced to the SKIP_SANDBOX_SPAWN_TESTS
       # importer set so it can't silently drift again.
@@ -560,6 +563,7 @@ jobs:
     # ci-timings report uses its own secret, so GITHUB_TOKEN needs nothing else.
     permissions:
       contents: read
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -1106,6 +1110,9 @@ jobs:
 
       - name: Check operator skill
         run: bun run check:operator-skill
+
+      - name: Check harness plugin descriptor versions
+        run: bun run check:plugin-versions
 
   gate:
     name: Merge Gate

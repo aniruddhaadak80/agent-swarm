@@ -11,10 +11,13 @@ import { ProviderNameSchema } from "../types";
  *   - `SECRETS_ENCRYPTION_KEY` is required to decrypt secrets stored in
  *     swarm_config, so it cannot itself be stored encrypted there.
  *
+ * `CORS_ALLOW_ANY_ORIGIN` is deployment-only: runtime config must not
+ * re-enable unrestricted credentialed CORS.
+ *
  * Matching is case-insensitive so `api_key`, `Api_Key`, etc. are all
  * rejected at every write path (DB helpers, HTTP routes, MCP tools).
  */
-const RESERVED_KEYS = new Set(["API_KEY", "SECRETS_ENCRYPTION_KEY"]);
+const RESERVED_KEYS = new Set(["API_KEY", "SECRETS_ENCRYPTION_KEY", "CORS_ALLOW_ANY_ORIGIN"]);
 
 export function isReservedConfigKey(key: string): boolean {
   return RESERVED_KEYS.has(key.toUpperCase());
@@ -203,6 +206,7 @@ const VALIDATED_KEYS: Record<string, ConfigValidator> = {
     if (parsed.success) return null;
     return `Invalid HARNESS_PROVIDER value (must be one of: ${ProviderNameSchema.options.join(", ")})`;
   },
+  ...enumValidator("CLAUDE_TRANSPORT", ["cli", "sdk"]),
   // Codex credits-exhausted cooldown (ms). Permissive on range here (positive
   // integer) — the worker clamps to [5m, 7d] via resolveCodexCreditsExhaustedCooldownMs.
   CODEX_CREDITS_EXHAUSTED_COOLDOWN_MS: (value) => {
@@ -222,7 +226,7 @@ const VALIDATED_KEYS: Record<string, ConfigValidator> = {
   },
   // AWS credential mode for the Bedrock path on the pi harness.
   //   sdk    — AWS SDK default credential chain (env, ~/.aws/*, SSO, IMDS, …)
-  //   bearer — explicit bearer token via AWS_BEARER_TOKEN_BEDROCK (future/Mantle)
+  //   bearer — explicit Bedrock API key via AWS_BEARER_TOKEN_BEDROCK (required in this mode)
   // When absent the worker infers the mode from MODEL_OVERRIDE (sdk semantics).
   BEDROCK_AUTH_MODE: (value) => {
     if (value === "sdk" || value === "bearer") return null;
@@ -250,6 +254,7 @@ const VALIDATED_KEYS: Record<string, ConfigValidator> = {
     "SCRIPTS_ONLY_MCP",
     "SLACK_DISABLE",
     "SLACK_RENDER_V2",
+    "SLACK_RENDER_V2_DELEGATION",
     "GITHUB_DISABLE",
     "GITLAB_DISABLE",
     "LINEAR_DISABLE",
@@ -299,6 +304,9 @@ const VALIDATED_KEYS: Record<string, ConfigValidator> = {
       "DB_QUERY_MCP_BUDGET_MS",
       "DB_QUERY_MCP_MAX_ROWS",
       "AGENT_FS_REQUEST_TIMEOUT_MS",
+      "SLACK_CONCLUSION_SETTLE_SEC",
+      "SLACK_CONCLUSION_TIMEOUT_MIN",
+      "SLACK_TREE_STALL_MIN",
     ],
     1,
   ),
@@ -315,6 +323,10 @@ const VALIDATED_KEYS: Record<string, ConfigValidator> = {
   ),
   // 0 is meaningful here: "auto-assign nothing this sweep".
   ...integerValidators(["HEARTBEAT_MAX_AUTO_ASSIGN"], 0),
+  // Below ~100 tokens the preamble can't fit a useful summary; above 20000
+  // (~80k chars) it risks the SIGTERM-143 context-saturation failure mode
+  // the cap exists to prevent (see context-preamble.ts).
+  ...boundedIntegerValidators(["CONTEXT_PREAMBLE_MAX_TOKENS"], 100, 20000),
   MEMORY_MIN_SIMILARITY: (value) =>
     validateFloatRange("MEMORY_MIN_SIMILARITY", value, 0, 1, "between 0 and 1 inclusive"),
   MEMORY_ACCESS_BOOST_MAX: (value) =>
